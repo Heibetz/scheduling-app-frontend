@@ -13,6 +13,7 @@ jobs:
       VUE_APP_CLIENT_ID: ${{secrets.VUE_APP_CLIENT_ID}}
       VUE_APP_API_URL: ${{secrets.VUE_APP_API_URL}}
       VUE_APP_CLIENT_URL: ${{secrets.VUE_APP_CLIENT_URL}}
+      VUE_APP_CLIENT_SECRET: ${{secrets.VUE_APP_CLIENT_SECRET}}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -25,7 +26,7 @@ jobs:
           echo VUE_APP_CLIENT_ID="$VUE_APP_CLIENT_ID" >> .env
           echo VUE_APP_API_URL="$VUE_APP_API_URL" >> .env
           echo VUE_APP_CLIENT_URL=workerscheduling.eaglesoftwareteam.com >> .env
-          echo VUE_APP_SITE_URL=workerscheduling.eaglesoftwareteam.com >> .env
+          echo VUE_APP_CLIENT_SECRET="$VUE_APP_CLIENT_SECRET" >> .env
 
       - run: npm install
       - run: npm run build
