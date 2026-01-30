@@ -1,21 +1,21 @@
-const { defineConfig } = require("cypress");
-require("dotenv").config();
+import { defineConfig } from "cypress";
+import dotenv from "dotenv";
+const env = dotenv.config("./.env").parsed;
 
-module.exports = defineConfig({
+export default defineConfig({
   e2e: {
     baseUrl: "http://localhost:8081",
     env: {
-      googleRefreshToken: process.env.VUE_APP_REFRESH_TOKEN,
-      googleClientId: process.env.VUE_APP_CLIENT_ID,
-      googleClientSecret: process.env.VUE_APP_CLIENT_SECRET,
-      clientUrl: process.env.VUE_APP_CLIENT_URL,
+      googleRefreshToken: env.VITE_APP_REFRESH_TOKEN,
+      googleClientId: env.VITE_APP_CLIENT_ID,
+      googleClientSecret: env.VITE_APP_CLIENT_SECRET,
+      clientUrl: env.VITE_APP_CLIENT_URL,
     },
   },
-
   component: {
     devServer: {
-      framework: "vue-cli",
-      bundler: "webpack",
+      framework: "vue",
+      bundler: "vite",
     },
   },
 });

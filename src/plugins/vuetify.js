@@ -1,26 +1,41 @@
-import Vue from "vue";
-import Vuetify from "vuetify/lib/framework";
+/**
+ * Vuetify3 Plugin
+ */
+import { createVuetify } from "vuetify";
+
+// Misc
+import { loadFonts } from "./webfontloader";
+loadFonts();
+
+// Styles
+import "vuetify/styles";
 import "@mdi/font/css/materialdesignicons.css";
 
-Vue.use(Vuetify);
+const myCustomLightTheme = {
+  dark: false,
+  colors: {
+    primary: "#80162B",
+    secondary: "#E1E1E1",
+    accent: "#47121D",
+    success: "#47121D",
+    error: "#EE5044",
+    teal: "#63BAC0",
+    blue: "#196CA2",
+    yellow: "#F8C545",
+    darkblue: "#032F45",
+  },
+};
 
-export default new Vuetify({
+const vuetify = createVuetify({
   theme: {
+    defaultTheme: "myCustomLightTheme",
     themes: {
-      light: {
-        primary: "#80162B",
-        secondary: "#E1E1E1",
-        accent: "#47121D",
-        success: "#47121D",
-        error: "#EE5044",
-        teal: "#63BAC0",
-        blue: "#196CA2",
-        yellow: "#F8C545",
-        darkblue: "#032F45",
-      },
+      myCustomLightTheme,
     },
   },
   icons: {
-    iconfont: "mdi", // default - only for display purposes
+    defaultSet: "mdi",
   },
 });
+
+export default vuetify;
