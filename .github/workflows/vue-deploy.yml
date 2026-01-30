@@ -20,7 +20,7 @@ jobs:
           ref: dev
       - uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 24
       - run: |
           touch .env
           echo VUE_APP_CLIENT_ID="$VUE_APP_CLIENT_ID" >> .env

@@ -1,17 +1,6 @@
-import Vue from "vue";
-import VueRouter from "vue-router";
+import { createApp } from "vue";
 import App from "./App.vue";
-import vuetify from "./plugins/vuetify";
-import router from "./router";
-import store from "./store/store";
-import "material-design-icons-iconfont/dist/material-design-icons.css";
+import router from "./router.js";
+import vuetify from "./plugins/vuetify.js";
 
-Vue.use(VueRouter);
-Vue.config.productionTip = false;
-
-new Vue({
-  router,
-  store,
-  vuetify,
-  render: (h) => h(App),
-}).$mount("#app");
+createApp(App).use(vuetify).use(router).mount("#app");

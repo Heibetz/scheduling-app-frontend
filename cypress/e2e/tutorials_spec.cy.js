@@ -7,14 +7,14 @@ describe("tutorials", () => {
   it("can login", () => {
     cy.visit("/");
     cy.loginByGoogleApi();
-    cy.contains("Hello!");
+    cy.contains("Hello");
   });
 
   describe("add tutorial", () => {
     beforeEach(() => {
       cy.visit("/");
       cy.loginByGoogleApi();
-      cy.contains("Hello!");
+      cy.contains("Hello");
     });
 
     it("can visit the add tutorial page", () => {

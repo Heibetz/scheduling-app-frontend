@@ -1,12 +1,11 @@
-import Vue from "vue";
-import Vuex from "vuex";
-import Utils from "@/config/utils";
+import { createStore } from "vuex";
+import Utils from "./config/utils";
 
 Vue.use(Vuex);
 
 const user = Utils.getStore("user");
 
-export default new Vuex.Store({
+const store = createStore({
   state: {
     loginUser: user,
   },
@@ -23,3 +22,5 @@ export default new Vuex.Store({
     },
   },
 });
+
+export default store;

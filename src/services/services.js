@@ -1,10 +1,10 @@
 import axios from "axios";
-import Utils from "@/config/utils.js";
+import Utils from "../config/utils.js";
 import AuthServices from "./authServices.js";
 import Router from "../router.js";
 
 var baseurl = "";
-if (process.env.NODE_ENV === "development") {
+if (import.meta.env.DEV) {
   baseurl = "http://localhost/workerscheduling-t5/";
 } else {
   baseurl = "/workerscheduling-t5/";
@@ -12,12 +12,11 @@ if (process.env.NODE_ENV === "development") {
 
 const apiClient = axios.create({
   baseURL: baseurl,
+  withCredentials: true,
   headers: {
     Accept: "application/json",
     "Content-Type": "application/json",
     "X-Requested-With": "XMLHttpRequest",
-    "Access-Control-Allow-Origin": "*",
-    crossDomain: true,
   },
   transformRequest: (data, headers) => {
     let user = Utils.getStore("user");
@@ -25,7 +24,7 @@ const apiClient = axios.create({
       let token = user.token;
       let authHeader = "";
       if (token != null && token != "") authHeader = "Bearer " + token;
-      headers.common["Authorization"] = authHeader;
+      headers["Authorization"] = authHeader;
     }
     return JSON.stringify(data);
   },

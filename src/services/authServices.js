@@ -1,4 +1,4 @@
-import apiClient from "@/services/services.js";
+import apiClient from "./services.js";
 
 export default {
   loginUser(user) {
