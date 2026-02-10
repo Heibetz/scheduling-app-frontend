@@ -7,7 +7,7 @@ import { useRouter, useRoute } from 'vue-router'
 
 const router = useRouter()
 const user = ref(null);
-const title = ref("Tutorials");
+const title = ref("Scheduling App");
 const initials = ref("");
 const name = ref("");
 const logoURL = ref("");
@@ -80,6 +80,15 @@ onMounted(() => {
                 {{ user.email }}
               </p>
               <v-divider class="my-3"></v-divider>
+              <v-btn 
+                depressed 
+                rounded 
+                text 
+                @click="router.push({ name: 'profile' })" 
+                class="mb-2"
+              > 
+                Profile 
+              </v-btn>
               <v-btn depressed rounded text @click="logout"> Logout </v-btn>
             </div>
           </v-card-text>
