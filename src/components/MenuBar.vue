@@ -42,7 +42,7 @@ onMounted(() => {
 <template>
   <div>
     <v-app-bar app>
-      <router-link :to="{ name: 'tutorials' }">
+      <router-link :to="{ name: 'profile' }">
         <v-img
           class="mx-2"
           :src="logoURL"
@@ -56,8 +56,9 @@ onMounted(() => {
       </v-toolbar-title>
       <v-spacer></v-spacer>
       <div v-if="user">
-        <v-btn class="mx-2" :to="{ name: 'tutorials' }"> List </v-btn>
-        <v-btn class="mx-2" :to="{ name: 'add' }"> Add Tutorial </v-btn>
+        <v-btn class="mx-2" :to="{ name: 'profile' }"> Profile </v-btn>
+        <v-btn class="mx-2" :to="{ name: '' }"> Schedule </v-btn>
+        <v-btn class="mx-2" :to="{ name: '' }"> Availability </v-btn>
       </div>
       <v-menu bottom min-width="200px" rounded offset-y v-if="user">
         <template v-slot:activator="{ props }">
