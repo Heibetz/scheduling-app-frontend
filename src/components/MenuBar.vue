@@ -1,9 +1,36 @@
 <script setup>
 import ocLogo from "/oc-logo-white.png";
-import { ref, onMounted } from "vue";
+
+import { ref, onMounted, watch } from "vue";
 import Utils from "../config/utils";
 import AuthServices from "../services/authServices";
+import NotificationServices from "../services/notificationServices";
 import { useRouter, useRoute } from 'vue-router'
+
+const notifications = ref([]);
+const showNotifications = ref(false);
+
+const fetchNotifications = () => {
+  if (user.value && user.value.userId) {
+    NotificationServices.getForUser(user.value.userId)
+      .then(res => {
+        notifications.value = res.data.map(n => ({
+          id: n.notification_id,
+          message: n.message,
+          read: n.is_read,
+        }));
+      })
+      .catch(() => {
+        notifications.value = [];
+      });
+  }
+};
+
+const markAllAsRead = () => {
+  const unread = notifications.value.filter(n => !n.read);
+  Promise.all(unread.map(n => NotificationServices.markAsRead(n.id)))
+    .then(() => fetchNotifications());
+};
 
 const router = useRouter()
 const user = ref(null);
@@ -33,9 +60,16 @@ const logout = () => {
     });
 };
 
+
 onMounted(() => {
   logoURL.value = ocLogo;
   resetMenu();
+  fetchNotifications();
+});
+
+// Refetch notifications when menu is opened
+watch(showNotifications, (val) => {
+  if (val) fetchNotifications();
 });
 </script>
 
@@ -55,6 +89,47 @@ onMounted(() => {
         {{ title }}
       </v-toolbar-title>
       <v-spacer></v-spacer>
+      <!-- Notification Icon -->
+      <div v-if="user">
+        <v-menu
+          v-model="showNotifications"
+          :close-on-content-click="false"
+          offset-y
+          right
+          min-width="300px"
+          location="top end"
+        >
+          <template v-slot:activator="{ props }">
+            <v-btn icon v-bind="props" class="mx-2">
+              <v-badge :content="notifications.filter(n => !n.read).length" color="red" v-if="notifications.filter(n => !n.read).length > 0">
+                <v-icon>mdi-bell</v-icon>
+              </v-badge>
+              <template v-else>
+                <v-icon>mdi-bell-outline</v-icon>
+              </template>
+            </v-btn>
+          </template>
+          <v-card>
+            <v-card-title class="d-flex justify-space-between align-center">
+              Notifications
+              <v-btn text small @click="markAllAsRead">Mark all as read</v-btn>
+            </v-card-title>
+            <v-divider></v-divider>
+            <v-list>
+              <v-list-item v-for="notif in notifications" :key="notif.id" :class="{'bg-grey-lighten-3': !notif.read}">
+                <v-list-item-content>
+                  <v-list-item-title v-text="notif.message"></v-list-item-title>
+                </v-list-item-content>
+              </v-list-item>
+              <v-list-item v-if="notifications.length === 0">
+                <v-list-item-content>
+                  <v-list-item-title>No notifications</v-list-item-title>
+                </v-list-item-content>
+              </v-list-item>
+            </v-list>
+          </v-card>
+        </v-menu>
+      </div>
       <div v-if="user">
         <v-btn class="mx-2" :to="{ name: 'tutorials' }"> List </v-btn>
         <v-btn class="mx-2" :to="{ name: 'add' }"> Add Tutorial </v-btn>
