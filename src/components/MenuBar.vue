@@ -34,7 +34,7 @@ const markAllAsRead = () => {
 
 const router = useRouter()
 const user = ref(null);
-const title = ref("Tutorials");
+const title = ref("Scheduling App");
 const initials = ref("");
 const name = ref("");
 const logoURL = ref("");
@@ -76,7 +76,7 @@ watch(showNotifications, (val) => {
 <template>
   <div>
     <v-app-bar app>
-      <router-link :to="{ name: 'tutorials' }">
+      <router-link :to="{ name: 'profile' }">
         <v-img
           class="mx-2"
           :src="logoURL"
@@ -131,8 +131,9 @@ watch(showNotifications, (val) => {
         </v-menu>
       </div>
       <div v-if="user">
-        <v-btn class="mx-2" :to="{ name: 'tutorials' }"> List </v-btn>
-        <v-btn class="mx-2" :to="{ name: 'add' }"> Add Tutorial </v-btn>
+        <v-btn class="mx-2" :to="{ name: 'profile' }"> Profile </v-btn>
+        <v-btn class="mx-2" :to="{ name: '' }"> Schedule </v-btn>
+        <v-btn class="mx-2" :to="{ name: '' }"> Availability </v-btn>
       </div>
       <v-menu bottom min-width="200px" rounded offset-y v-if="user">
         <template v-slot:activator="{ props }">
@@ -155,6 +156,15 @@ watch(showNotifications, (val) => {
                 {{ user.email }}
               </p>
               <v-divider class="my-3"></v-divider>
+              <v-btn 
+                depressed 
+                rounded 
+                text 
+                @click="router.push({ name: 'profile' })" 
+                class="mb-2"
+              > 
+                Profile 
+              </v-btn>
               <v-btn depressed rounded text @click="logout"> Logout </v-btn>
             </div>
           </v-card-text>
