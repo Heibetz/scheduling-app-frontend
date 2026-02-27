@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import Utils from "./config/utils";
 
 import Login from "./views/Login.vue";
 import Dashboard from "./views/Dashboard.vue";
@@ -71,6 +72,18 @@ const router = createRouter({
       component: Areas,
     },
   ],
+});
+
+// Route guard: redirect to login if not authenticated
+router.beforeEach((to, from, next) => {
+  const user = Utils.getStore("user");
+  if (to.name !== "login" && !user) {
+    next({ name: "login" });
+  } else if (to.name === "login" && user) {
+    next({ name: "dashboard" });
+  } else {
+    next();
+  }
 });
 
 export default router;
