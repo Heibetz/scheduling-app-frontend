@@ -147,6 +147,10 @@ watch(showNotifications, (val) => {
           <v-icon class="mr-1">mdi-map-marker-multiple</v-icon>
           Areas
         </v-btn>
+        <v-btn v-if="user.is_super_admin" class="mx-2" :to="{ name: 'users' }">
+          <v-icon class="mr-1">mdi-account-group</v-icon>
+          Users
+        </v-btn>
       </div>
       <v-menu bottom min-width="200px" rounded offset-y v-if="user">
         <template v-slot:activator="{ props }">
