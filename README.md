@@ -8,10 +8,6 @@
 
 1. Clone the project into your **XAMPP/xamppfiles/htdocs** directory.
 
-```
-git clone https://github.com/OC-ComputerScience/tutorial-frontend-vue3.git
-```
-
 2. Install the project.
 
 ```
