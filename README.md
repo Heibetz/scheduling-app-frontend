@@ -1,7 +1,3 @@
-# Tutorial Frontend in Vue 3
-
-This application allows users to create and maintain a list of tutorials that can have multiple lessons within. Please visit https://github.com/OC-ComputerScience/tutorial-backend for the backend repository.
-
 #### Please note:
 
 - This project utilizes **Google Authentication** to allow users to log in.
