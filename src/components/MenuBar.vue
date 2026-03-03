@@ -74,11 +74,12 @@ const fetchManagerStatus = async () => {
       PositionUserServices.getAll(),
     ]);
     const managerPositions = posRes.data.filter((p) => p.is_manager);
+    const userId = user.value.userId || user.value.user_id;
     const myManagerPositionIds = puRes.data
-      .filter((pu) => pu.user_id === user.value.userId)
-      .map((pu) => pu.position_id);
+      .filter((pu) => Number(pu.user_id) === Number(userId))
+      .map((pu) => Number(pu.position_id));
     const myManagerPositions = managerPositions.filter((p) =>
-      myManagerPositionIds.includes(p.position_id)
+      myManagerPositionIds.includes(Number(p.position_id))
     );
     const areaMap = Object.fromEntries(
       areaRes.data.map((a) => [a.area_id, a])
@@ -192,8 +193,8 @@ watch(showNotifications, (val) => {
           class="mx-2"
           :to="{ name: 'manager-dashboard', query: { area: ma.area_id } }"
         >
-          <v-icon class="mr-1">mdi-shield-crown</v-icon>
-          {{ ma.area_code }} Manager
+          <v-icon class="mr-1">mdi-office-building</v-icon>
+          {{ ma.area_name }} Dashboard
         </v-btn>
       </div>
       <v-menu bottom min-width="200px" rounded offset-y v-if="user">
