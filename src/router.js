@@ -80,10 +80,11 @@ const router = createRouter({
       component: Users,
     },
     {
-      path: "/schedule", 
-      name: "schedule", 
+      path: "/schedule",
+      name: "schedule",
       component: Schedule,
-    }
+    },
+    {
       path: "/availability",
       name: "availability",
       component: Availability,
