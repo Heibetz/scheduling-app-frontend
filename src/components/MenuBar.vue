@@ -174,7 +174,7 @@ watch(showNotifications, (val) => {
           <v-icon class="mr-1">mdi-calendar</v-icon>
           Schedule
         </v-btn>
-        <v-btn v-if="!user.is_super_admin" class="mx-2" :to="{ name: '' }">
+        <v-btn v-if="!user.is_super_admin" class="mx-2" :to="{ name: 'availability' }">
           <v-icon class="mr-1">mdi-clock-outline</v-icon>
           Availability
         </v-btn>
