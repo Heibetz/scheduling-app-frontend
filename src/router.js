@@ -77,6 +77,11 @@ const router = createRouter({
       name: "users",
       component: Users,
     },
+    {
+      path: "/manager-dashboard",
+      name: "manager-dashboard",
+      component: () => import("./views/ManagerDashboard.vue"),
+    },
   ],
 });
 

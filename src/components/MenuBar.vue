@@ -5,10 +5,14 @@ import { ref, onMounted, watch } from "vue";
 import Utils from "../config/utils";
 import AuthServices from "../services/authServices";
 import NotificationServices from "../services/notificationServices";
+import AreaServices from "../services/areaServices";
+import PositionServices from "../services/positionServices";
+import PositionUserServices from "../services/positionUserServices";
 import { useRouter, useRoute } from 'vue-router'
 
 const notifications = ref([]);
 const showNotifications = ref(false);
+const managedAreas = ref([]);
 
 const fetchNotifications = () => {
   if (user.value && user.value.userId) {
@@ -61,10 +65,41 @@ const logout = () => {
 };
 
 
+const fetchManagerStatus = async () => {
+  if (!user.value) return;
+  try {
+    const [areaRes, posRes, puRes] = await Promise.all([
+      AreaServices.getAll(),
+      PositionServices.getAll(),
+      PositionUserServices.getAll(),
+    ]);
+    const managerPositions = posRes.data.filter((p) => p.is_manager);
+    const myManagerPositionIds = puRes.data
+      .filter((pu) => pu.user_id === user.value.userId)
+      .map((pu) => pu.position_id);
+    const myManagerPositions = managerPositions.filter((p) =>
+      myManagerPositionIds.includes(p.position_id)
+    );
+    const areaMap = Object.fromEntries(
+      areaRes.data.map((a) => [a.area_id, a])
+    );
+    managedAreas.value = myManagerPositions.map((p) => ({
+      area_id: p.area_id,
+      area_code: areaMap[p.area_id]?.area_code || "Unknown",
+      area_name: areaMap[p.area_id]?.area_name || "Unknown",
+      position_name: p.position_name,
+    }));
+  } catch (err) {
+    console.error("Error fetching manager status:", err);
+    managedAreas.value = [];
+  }
+};
+
 onMounted(() => {
   logoURL.value = ocLogo;
   resetMenu();
   fetchNotifications();
+  fetchManagerStatus();
 });
 
 // Refetch notifications when menu is opened
@@ -150,6 +185,15 @@ watch(showNotifications, (val) => {
         <v-btn v-if="user.is_super_admin" class="mx-2" :to="{ name: 'users' }">
           <v-icon class="mr-1">mdi-account-group</v-icon>
           Users
+        </v-btn>
+        <v-btn
+          v-for="ma in managedAreas"
+          :key="ma.area_id"
+          class="mx-2"
+          :to="{ name: 'manager-dashboard', query: { area: ma.area_id } }"
+        >
+          <v-icon class="mr-1">mdi-shield-crown</v-icon>
+          {{ ma.area_code }} Manager
         </v-btn>
       </div>
       <v-menu bottom min-width="200px" rounded offset-y v-if="user">
