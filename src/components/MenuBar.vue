@@ -135,7 +135,7 @@ watch(showNotifications, (val) => {
           <v-icon class="mr-1">mdi-view-dashboard</v-icon>
           Dashboard
         </v-btn>
-        <v-btn class="mx-2" :to="{ name: '' }">
+        <v-btn class="mx-2" :to="{ name: 'schedule' }">
           <v-icon class="mr-1">mdi-calendar</v-icon>
           Schedule
         </v-btn>

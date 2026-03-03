@@ -13,6 +13,7 @@ import EditLesson from "./views/EditLesson.vue";
 import Profile from "./views/Profile.vue";
 import Areas from "./views/Areas.vue";
 import Users from "./views/Users.vue";
+import Schedule from "./views/ScheduleView.vue";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -77,6 +78,11 @@ const router = createRouter({
       name: "users",
       component: Users,
     },
+    {
+      path: "/schedule", 
+      name: "schedule", 
+      component: Schedule,
+    }
   ],
 });
 
