@@ -34,32 +34,13 @@
         <v-card class="pa-4" elevation="2">
           <div class="d-flex align-center mb-2">
             <v-icon color="primary" class="mr-2">mdi-cash</v-icon>
-            <span class="text-subtitle-2 font-weight-medium">Total This Month</span>
+            <span class="text-subtitle-2 font-weight-medium">Total Hours This Month</span>
           </div>
           <div class="text-h3 font-weight-bold">{{ totalMonthHours }}</div>
           <div class="text-caption text-grey-darken-1">{{ totalMonthShifts }} shifts</div>
         </v-card>
       </v-col>
-      
-      <v-col cols="12" sm="6" md="3">
-        <v-card class="pa-4" elevation="2">
-          <div class="d-flex align-center mb-2">
-            <v-icon color="primary" class="mr-2">mdi-beach</v-icon>
-            <span class="text-subtitle-2 font-weight-medium">Time Off Balance</span>
-          </div>
-          <div class="text-h3 font-weight-bold">{{ timeOffBalance }}</div>
-          <div class="text-caption text-grey-darken-1">days available</div>
-        </v-card>
-      </v-col>
     </v-row>
-
-    <!-- Action Bar -->
-    <div class="d-flex justify-end mb-4">
-      <v-btn color="primary" dark elevation="2" class="px-6">
-        <v-icon class="mr-2">mdi-calendar-plus</v-icon>
-        Request Time Off
-      </v-btn>
-    </div>
 
     <!-- My Upcoming Shifts Section -->
     <v-card elevation="2" class="pa-6">
@@ -133,7 +114,6 @@ const nextWeekHours = ref(8)
 const nextWeekShifts = ref(2)
 const totalMonthHours = ref(32)
 const totalMonthShifts = ref(8)
-const timeOffBalance = ref(5)
 
 // Shifts data (mock data for now)
 const upcomingShifts = ref([

@@ -14,6 +14,7 @@ import Profile from "./views/Profile.vue";
 import Areas from "./views/Areas.vue";
 import Users from "./views/Users.vue";
 import Schedule from "./views/ScheduleView.vue";
+import Availability from "./views/Availability.vue";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -83,6 +84,15 @@ const router = createRouter({
       name: "schedule", 
       component: Schedule,
     }
+      path: "/availability",
+      name: "availability",
+      component: Availability,
+    },
+    {
+      path: "/manager-dashboard",
+      name: "manager-dashboard",
+      component: () => import("./views/ManagerDashboard.vue"),
+    },
   ],
 });
 

@@ -5,10 +5,14 @@ import { ref, onMounted, watch } from "vue";
 import Utils from "../config/utils";
 import AuthServices from "../services/authServices";
 import NotificationServices from "../services/notificationServices";
+import AreaServices from "../services/areaServices";
+import PositionServices from "../services/positionServices";
+import PositionUserServices from "../services/positionUserServices";
 import { useRouter, useRoute } from 'vue-router'
 
 const notifications = ref([]);
 const showNotifications = ref(false);
+const managedAreas = ref([]);
 
 const fetchNotifications = () => {
   if (user.value && user.value.userId) {
@@ -61,10 +65,42 @@ const logout = () => {
 };
 
 
+const fetchManagerStatus = async () => {
+  if (!user.value) return;
+  try {
+    const [areaRes, posRes, puRes] = await Promise.all([
+      AreaServices.getAll(),
+      PositionServices.getAll(),
+      PositionUserServices.getAll(),
+    ]);
+    const managerPositions = posRes.data.filter((p) => p.is_manager);
+    const userId = user.value.userId || user.value.user_id;
+    const myManagerPositionIds = puRes.data
+      .filter((pu) => Number(pu.user_id) === Number(userId))
+      .map((pu) => Number(pu.position_id));
+    const myManagerPositions = managerPositions.filter((p) =>
+      myManagerPositionIds.includes(Number(p.position_id))
+    );
+    const areaMap = Object.fromEntries(
+      areaRes.data.map((a) => [a.area_id, a])
+    );
+    managedAreas.value = myManagerPositions.map((p) => ({
+      area_id: p.area_id,
+      area_code: areaMap[p.area_id]?.area_code || "Unknown",
+      area_name: areaMap[p.area_id]?.area_name || "Unknown",
+      position_name: p.position_name,
+    }));
+  } catch (err) {
+    console.error("Error fetching manager status:", err);
+    managedAreas.value = [];
+  }
+};
+
 onMounted(() => {
   logoURL.value = ocLogo;
   resetMenu();
   fetchNotifications();
+  fetchManagerStatus();
 });
 
 // Refetch notifications when menu is opened
@@ -131,15 +167,16 @@ watch(showNotifications, (val) => {
         </v-menu>
       </div>
       <div v-if="user">
-        <v-btn class="mx-2" :to="{ name: 'dashboard' }">
+        <v-btn v-if="!user.is_super_admin" class="mx-2" :to="{ name: 'dashboard' }">
           <v-icon class="mr-1">mdi-view-dashboard</v-icon>
           Dashboard
         </v-btn>
         <v-btn class="mx-2" :to="{ name: 'schedule' }">
+        <v-btn v-if="!user.is_super_admin" class="mx-2" :to="{ name: '' }">
           <v-icon class="mr-1">mdi-calendar</v-icon>
           Schedule
         </v-btn>
-        <v-btn class="mx-2" :to="{ name: '' }">
+        <v-btn v-if="!user.is_super_admin" class="mx-2" :to="{ name: 'availability' }">
           <v-icon class="mr-1">mdi-clock-outline</v-icon>
           Availability
         </v-btn>
@@ -150,6 +187,15 @@ watch(showNotifications, (val) => {
         <v-btn v-if="user.is_super_admin" class="mx-2" :to="{ name: 'users' }">
           <v-icon class="mr-1">mdi-account-group</v-icon>
           Users
+        </v-btn>
+        <v-btn
+          v-for="ma in managedAreas"
+          :key="ma.area_id"
+          class="mx-2"
+          :to="{ name: 'manager-dashboard', query: { area: ma.area_id } }"
+        >
+          <v-icon class="mr-1">mdi-office-building</v-icon>
+          {{ ma.area_name }} Dashboard
         </v-btn>
       </div>
       <v-menu bottom min-width="200px" rounded offset-y v-if="user">
