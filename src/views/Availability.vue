@@ -8,15 +8,50 @@ const router = useRouter();
 const currentUser = ref(null);
 const loading = ref(false);
 
-// Form data for each day
+// Form data for each day - updated structure to support multiple time ranges
 const availabilityForm = ref([
-  { day: 1, dayName: 'Monday', startTime: '09:00', endTime: '17:00', isUnavailable: true, availabilityId: null },
-  { day: 2, dayName: 'Tuesday', startTime: '09:00', endTime: '17:00', isUnavailable: true, availabilityId: null },
-  { day: 3, dayName: 'Wednesday', startTime: '09:00', endTime: '17:00', isUnavailable: true, availabilityId: null },
-  { day: 4, dayName: 'Thursday', startTime: '09:00', endTime: '17:00', isUnavailable: true, availabilityId: null },
-  { day: 5, dayName: 'Friday', startTime: '09:00', endTime: '17:00', isUnavailable: true, availabilityId: null },
-  { day: 6, dayName: 'Saturday', startTime: '09:00', endTime: '17:00', isUnavailable: true, availabilityId: null },
-  { day: 0, dayName: 'Sunday', startTime: '09:00', endTime: '17:00', isUnavailable: true, availabilityId: null },
+  { 
+    day: 1, 
+    dayName: 'Monday', 
+    isUnavailable: true, 
+    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+  },
+  { 
+    day: 2, 
+    dayName: 'Tuesday', 
+    isUnavailable: true, 
+    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+  },
+  { 
+    day: 3, 
+    dayName: 'Wednesday', 
+    isUnavailable: true, 
+    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+  },
+  { 
+    day: 4, 
+    dayName: 'Thursday', 
+    isUnavailable: true, 
+    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+  },
+  { 
+    day: 5, 
+    dayName: 'Friday', 
+    isUnavailable: true, 
+    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+  },
+  { 
+    day: 6, 
+    dayName: 'Saturday', 
+    isUnavailable: true, 
+    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+  },
+  { 
+    day: 0, 
+    dayName: 'Sunday', 
+    isUnavailable: true, 
+    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+  },
 ]);
 
 // Snackbar for notifications
@@ -24,27 +59,83 @@ const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
 
-// Time options for dropdowns
-const timeOptions = ref([]);
-
 // Form validation
 const isFormValid = ref(true);
+const showTimeInputs = ref({});
+
+// Toggle time input visibility for a specific day
+const toggleTimeInputs = (dayIndex) => {
+  showTimeInputs.value[dayIndex] = !showTimeInputs.value[dayIndex];
+};
+
+// Get status text for a day
+const getDayStatus = (dayForm) => {
+  if (dayForm.isUnavailable) return 'Unavailable';
+  if (dayForm.timeRanges.length === 1) {
+    return `${dayForm.timeRanges[0].startTime} - ${dayForm.timeRanges[0].endTime}`;
+  }
+  return `${dayForm.timeRanges.length} time slots`;
+};
 
 // Check if user has access
 const hasAccess = computed(() => {
   return currentUser.value && !currentUser.value.is_super_admin;
 });
 
-// Generate time options (24-hour format, 15-minute intervals)
+// Calculate total available hours for weekly summary
+const totalAvailableHours = computed(() => {
+  let totalHours = 0;
+  availabilityForm.value.forEach(dayForm => {
+    if (!dayForm.isUnavailable) {
+      dayForm.timeRanges.forEach(range => {
+        const startTime24 = convertTo24Hour(range.startTime);
+        const endTime24 = convertTo24Hour(range.endTime);
+        const [startHours, startMinutes] = startTime24.split(':').map(Number);
+        const [endHours, endMinutes] = endTime24.split(':').map(Number);
+        const startTotalMinutes = startHours * 60 + startMinutes;
+        const endTotalMinutes = endHours * 60 + endMinutes;
+        const durationMinutes = endTotalMinutes - startTotalMinutes;
+        totalHours += durationMinutes / 60;
+      });
+    }
+  });
+  return totalHours;
+});
+
+// Time options for dropdowns
+const timeOptions = ref([]);
 const generateTimeOptions = () => {
   const times = [];
   for (let hour = 0; hour < 24; hour++) {
     for (let minute = 0; minute < 60; minute += 15) {
-      const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+      const timeString = convertTo12Hour(`${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`);
       times.push(timeString);
     }
   }
   timeOptions.value = times;
+};
+
+// Convert 24-hour time to 12-hour AM/PM format
+const convertTo12Hour = (time24) => {
+  const [hours, minutes] = time24.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const hours12 = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+  return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+};
+
+// Convert 12-hour AM/PM time to 24-hour format
+const convertTo24Hour = (time12) => {
+  const [time, period] = time12.split(' ');
+  const [hours, minutes] = time.split(':').map(Number);
+  let hours24 = hours;
+  
+  if (period === 'AM' && hours === 12) {
+    hours24 = 0;
+  } else if (period === 'PM' && hours !== 12) {
+    hours24 = hours + 12;
+  }
+  
+  return `${hours24.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 };
 
 // Load availability data from backend
@@ -62,22 +153,35 @@ const loadAvailabilityData = async () => {
     // Reset all days to unavailable first
     availabilityForm.value.forEach(dayForm => {
       dayForm.isUnavailable = true;
-      dayForm.availabilityId = null;
-      dayForm.startTime = '09:00';
-      dayForm.endTime = '17:00';
+      dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }];
     });
     
-    // Update form with backend data - only days with active records should be available
+    // Group backend data by day of week
+    const dataByDay = {};
     backendData.forEach(item => {
-      const dayForm = availabilityForm.value.find(d => d.day === item.day_of_week);
-      if (dayForm && item.is_active) {
-        dayForm.isUnavailable = false; // Day is available
-        dayForm.availabilityId = item.availability_id;
-        dayForm.startTime = item.start_time.substring(0, 5); // Remove seconds
-        dayForm.endTime = item.end_time.substring(0, 5); // Remove seconds
-      } else if (dayForm) {
-        // Day has a record but is inactive, keep it unavailable but store the ID
-        dayForm.availabilityId = item.availability_id;
+      if (!dataByDay[item.day_of_week]) {
+        dataByDay[item.day_of_week] = [];
+      }
+      if (item.is_active) {
+        dataByDay[item.day_of_week].push({
+          startTime: item.start_time.substring(0, 5),
+          endTime: item.end_time.substring(0, 5),
+          availabilityId: item.availability_id
+        });
+      }
+    });
+    
+    // Update form with backend data - support multiple time ranges per day
+    Object.keys(dataByDay).forEach(dayOfWeek => {
+      const dayForm = availabilityForm.value.find(d => d.day === parseInt(dayOfWeek));
+      if (dayForm && dataByDay[dayOfWeek].length > 0) {
+        dayForm.isUnavailable = false;
+        // Convert 24-hour times from backend to 12-hour format for display
+        dayForm.timeRanges = dataByDay[dayOfWeek].map(range => ({
+          startTime: convertTo12Hour(range.startTime),
+          endTime: convertTo12Hour(range.endTime),
+          availabilityId: range.availabilityId
+        }));
       }
     });
     
@@ -91,10 +195,33 @@ const loadAvailabilityData = async () => {
   }
 };
 
-// Validate time for a specific day
-const validateTime = (dayForm) => {
-  if (!dayForm.isUnavailable && dayForm.startTime >= dayForm.endTime) {
-    return 'End time must be after start time';
+// Validate time ranges for a specific day
+const validateTimeRanges = (dayForm) => {
+  if (dayForm.isUnavailable) return null;
+  
+  for (let i = 0; i < dayForm.timeRanges.length; i++) {
+    const range = dayForm.timeRanges[i];
+    // Convert to 24-hour for comparison
+    const startTime24 = convertTo24Hour(range.startTime);
+    const endTime24 = convertTo24Hour(range.endTime);
+    
+    if (startTime24 >= endTime24) {
+      return `Time range ${i + 1}: End time must be after start time`;
+    }
+    
+    // Check for overlapping ranges
+    for (let j = i + 1; j < dayForm.timeRanges.length; j++) {
+      const otherRange = dayForm.timeRanges[j];
+      const otherStartTime24 = convertTo24Hour(otherRange.startTime);
+      const otherEndTime24 = convertTo24Hour(otherRange.endTime);
+      
+      if (
+        (startTime24 < otherEndTime24 && endTime24 > otherStartTime24) ||
+        (otherStartTime24 < endTime24 && otherEndTime24 > startTime24)
+      ) {
+        return `Time ranges ${i + 1} and ${j + 1} overlap`;
+      }
+    }
   }
   return null;
 };
@@ -104,7 +231,7 @@ const saveAvailability = async () => {
   // Validate all forms
   const errors = [];
   availabilityForm.value.forEach(dayForm => {
-    const error = validateTime(dayForm);
+    const error = validateTimeRanges(dayForm);
     if (error) {
       errors.push(`${dayForm.dayName}: ${error}`);
     }
@@ -121,37 +248,41 @@ const saveAvailability = async () => {
     
     for (const dayForm of availabilityForm.value) {
       if (dayForm.isUnavailable) {
-        // Delete if exists
-        if (dayForm.availabilityId) {
-          promises.push(
-            AvailabilityServices.delete(dayForm.availabilityId).then(() => {
-              dayForm.availabilityId = null;
-            })
-          );
-        }
+        // Delete all existing time ranges for this day
+        dayForm.timeRanges.forEach(range => {
+          if (range.availabilityId) {
+            promises.push(
+              AvailabilityServices.delete(range.availabilityId).then(() => {
+                range.availabilityId = null;
+              })
+            );
+          }
+        });
       } else {
-        // Create or update
-        const availabilityPayload = {
-          user_id: currentUser.value.userId,
-          day_of_week: dayForm.day,
-          start_time: dayForm.startTime + ':00',
-          end_time: dayForm.endTime + ':00',
-          is_active: true
-        };
+        // Handle multiple time ranges for this day
+        dayForm.timeRanges.forEach(range => {
+          const availabilityPayload = {
+            user_id: currentUser.value.userId,
+            day_of_week: dayForm.day,
+            start_time: convertTo24Hour(range.startTime) + ':00',
+            end_time: convertTo24Hour(range.endTime) + ':00',
+            is_active: true
+          };
 
-        if (dayForm.availabilityId) {
-          // Update existing
-          promises.push(
-            AvailabilityServices.update(dayForm.availabilityId, availabilityPayload)
-          );
-        } else {
-          // Create new
-          promises.push(
-            AvailabilityServices.create(availabilityPayload).then((response) => {
-              dayForm.availabilityId = response.data.availability_id;
-            })
-          );
-        }
+          if (range.availabilityId) {
+            // Update existing
+            promises.push(
+              AvailabilityServices.update(range.availabilityId, availabilityPayload)
+            );
+          } else {
+            // Create new
+            promises.push(
+              AvailabilityServices.create(availabilityPayload).then((response) => {
+                range.availabilityId = response.data.availability_id;
+              })
+            );
+          }
+        });
       }
     }
     
@@ -175,8 +306,7 @@ const showSnackbar = (text, color = 'success') => {
 const resetToDefaults = () => {
   // Reset form to default values
   availabilityForm.value.forEach(dayForm => {
-    dayForm.startTime = '09:00';
-    dayForm.endTime = '17:00';
+    dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }];
     // Monday-Friday available, Weekend unavailable
     dayForm.isUnavailable = dayForm.day === 0 || dayForm.day === 6;
   });
@@ -188,20 +318,18 @@ const setWeekdaysOnly = () => {
   availabilityForm.value.forEach(dayForm => {
     dayForm.isUnavailable = dayForm.day === 0 || dayForm.day === 6; // Sunday and Saturday
     if (!dayForm.isUnavailable) {
-      dayForm.startTime = '09:00';
-      dayForm.endTime = '17:00';
+      dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }];
     }
   });
-  showSnackbar('Set to weekdays only (Mon-Fri, 9:00-17:00)', 'info');
+  showSnackbar('Set to weekdays only (Mon-Fri, 9:00 AM - 5:00 PM)', 'info');
 };
 
 const setFullWeek = () => {
   availabilityForm.value.forEach(dayForm => {
     dayForm.isUnavailable = false;
-    dayForm.startTime = '09:00';
-    dayForm.endTime = '17:00';
+    dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }];
   });
-  showSnackbar('Set full week availability (9:00-17:00)', 'info');
+  showSnackbar('Set full week availability (9:00 AM - 5:00 PM)', 'info');
 };
 
 const setAllUnavailable = () => {
@@ -209,6 +337,49 @@ const setAllUnavailable = () => {
     dayForm.isUnavailable = true;
   });
   showSnackbar('All days set to unavailable', 'info');
+};
+
+// Add and remove time range functions
+const addTimeRange = (dayForm) => {
+  const lastRange = dayForm.timeRanges[dayForm.timeRanges.length - 1];
+  const newStartTime = lastRange ? lastRange.endTime : '9:00 AM';
+  const newEndTime = getNextTimeSlot(newStartTime, 60); // Add 1 hour by default
+  
+  dayForm.timeRanges.push({
+    startTime: newStartTime,
+    endTime: newEndTime,
+    availabilityId: null
+  });
+};
+
+const removeTimeRange = (dayForm, index) => {
+  if (dayForm.timeRanges.length > 1) {
+    const rangeToRemove = dayForm.timeRanges[index];
+    if (rangeToRemove.availabilityId) {
+      // If it exists in backend, delete it
+      AvailabilityServices.delete(rangeToRemove.availabilityId)
+        .then(() => {
+          showSnackbar('Time range removed', 'success');
+        })
+        .catch((error) => {
+          console.error('Error deleting time range:', error);
+          showSnackbar('Error removing time range', 'error');
+        });
+    }
+    dayForm.timeRanges.splice(index, 1);
+  }
+};
+
+// Helper function to get next time slot
+const getNextTimeSlot = (timeString, minutesToAdd) => {
+  // Convert to 24-hour, add minutes, then back to 12-hour
+  const time24 = convertTo24Hour(timeString);
+  const [hours, minutes] = time24.split(':').map(Number);
+  const totalMinutes = hours * 60 + minutes + minutesToAdd;
+  const newHours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const newMinutes = totalMinutes % 60;
+  const newTime24 = `${newHours.toString().padStart(2, '0')}:${newMinutes.toString().padStart(2, '0')}`;
+  return convertTo12Hour(newTime24);
 };
 
 onMounted(async () => {
@@ -227,217 +398,534 @@ onMounted(async () => {
 </script>
 
 <template>
-  <v-container fluid v-if="hasAccess">
-    <!-- Header -->
-    <v-row>
-      <v-col>
-        <div class="d-flex justify-space-between align-center mb-4">
-          <div>
-            <h1 class="text-h4">My Availability</h1>
-            <p class="text-subtitle-1 text-grey-darken-1">
-              Set your available hours for each day of the week. Click Save when done.
-            </p>
-          </div>
-          <div>
-            <v-btn 
-              color="secondary"
-              variant="outlined"
-              class="mr-2"
-              @click="resetToDefaults"
-              prepend-icon="mdi-restore"
-              :disabled="loading"
-            >
-              Reset to Default
-            </v-btn>
-            <v-btn 
-              color="primary"
-              @click="saveAvailability"
-              prepend-icon="mdi-content-save"
-              :loading="loading"
-              size="large"
-            >
-              Save Availability
-            </v-btn>
-          </div>
-        </div>
-      </v-col>
-    </v-row>
+  <div class="availability-page" v-if="hasAccess">
+    <!-- Header Section -->
+    <div class="page-header">
+      <div class="header-content">
+        <h1 class="page-title">My Availability</h1>
+        <p class="page-subtitle">Set your weekly availability for scheduling</p>
+      </div>
+      <v-btn 
+        color="#2c3e50"
+        class="save-btn"
+        @click="saveAvailability"
+        :loading="loading"
+        size="large"
+        rounded="lg"
+      >
+        <v-icon class="mr-2">mdi-clock</v-icon>
+        Save Availability
+      </v-btn>
+    </div>
 
-    <!-- Availability Form -->
-    <v-card elevation="2">
-      <v-card-title>
-        <v-icon class="mr-2">mdi-calendar-week</v-icon>
-        Weekly Schedule
-      </v-card-title>
-      <v-card-text>
-        <v-form v-model="isFormValid" ref="form">
-          <div class="availability-grid">
-            <!-- Table Header -->
-            <v-row class="font-weight-bold bg-grey-lighten-4 pa-3 ma-0">
-              <v-col cols="3" class="text-center">Day of Week</v-col>
-              <v-col cols="3" class="text-center">Start Time</v-col>
-              <v-col cols="3" class="text-center">End Time</v-col>
-              <v-col cols="3" class="text-center">Unavailable</v-col>
-            </v-row>
-            
-            <!-- Day Rows -->
-            <div v-for="(dayForm, index) in availabilityForm" :key="dayForm.day">
-              <v-row 
-                class="day-row pa-3 ma-0" 
-                :class="{ 'unavailable-row': dayForm.isUnavailable }"
-              >
-                <v-col cols="3" class="d-flex align-center">
-                  <v-icon 
-                    class="mr-2" 
-                    :color="dayForm.isUnavailable ? 'grey' : 'primary'"
-                  >
-                    mdi-calendar-today
-                  </v-icon>
-                  <span class="text-h6">{{ dayForm.dayName }}</span>
-                </v-col>
-                
-                <v-col cols="3">
-                  <v-select
-                    v-model="dayForm.startTime"
-                    :items="timeOptions"
-                    label="Start Time"
-                    density="compact"
-                    variant="outlined"
-                    :disabled="dayForm.isUnavailable || loading"
-                    :rules="[() => validateTime(dayForm) || true]"
-                    prepend-inner-icon="mdi-clock-start"
-                  ></v-select>
-                </v-col>
-                
-                <v-col cols="3">
-                  <v-select
-                    v-model="dayForm.endTime"
-                    :items="timeOptions"
-                    label="End Time"
-                    density="compact"
-                    variant="outlined"
-                    :disabled="dayForm.isUnavailable || loading"
-                    :rules="[() => validateTime(dayForm) || true]"
-                    prepend-inner-icon="mdi-clock-end"
-                  ></v-select>
-                </v-col>
-                
-                <v-col cols="3" class="d-flex align-center justify-center">
-                  <v-checkbox
-                    v-model="dayForm.isUnavailable"
-                    label="Unavailable"
-                    color="error"
-                    density="compact"
-                    :disabled="loading"
-                    hide-details
-                  ></v-checkbox>
-                </v-col>
-              </v-row>
-              
-              <v-divider v-if="index < availabilityForm.length - 1"></v-divider>
-            </div>
-          </div>
-        </v-form>
+    <!-- Weekly Summary Card -->
+    <v-card class="weekly-summary-card" elevation="0" rounded="lg">
+      <v-card-text class="pa-6">
+        <div class="d-flex align-center">
+          <v-icon class="mr-3" size="20" color="#6c757d">mdi-calendar-clock</v-icon>
+          <h3 class="summary-title">Weekly Summary</h3>
+        </div>
+        <p class="summary-subtitle">Your total available hours per week</p>
+        <div class="hours-display">
+          <span class="hours-number">{{ Math.round(totalAvailableHours * 10) / 10 }}</span>
+          <span class="hours-label">hours per week</span>
+        </div>
       </v-card-text>
     </v-card>
 
-    <!-- Quick Actions -->
-    <v-row class="mt-4">
-      <v-col>
-        <v-card variant="outlined">
-          <v-card-title class="text-h6">
-            <v-icon class="mr-2">mdi-flash</v-icon>
-            Quick Actions
-          </v-card-title>
-          <v-card-text>
-            <v-btn-group variant="outlined" class="mr-2 mb-2">
-              <v-btn @click="setWeekdaysOnly" :disabled="loading">
-                <v-icon class="mr-1">mdi-briefcase</v-icon>
-                Weekdays Only
-              </v-btn>
-              <v-btn @click="setFullWeek" :disabled="loading">
-                <v-icon class="mr-1">mdi-calendar</v-icon>
-                Full Week
-              </v-btn>
-              <v-btn @click="setAllUnavailable" :disabled="loading">
-                <v-icon class="mr-1">mdi-close</v-icon>
-                All Unavailable
-              </v-btn>
-            </v-btn-group>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
+    <!-- Days List -->
+    <div class="days-container">
+      <div 
+        v-for="(dayForm, dayIndex) in availabilityForm" 
+        :key="dayForm.day" 
+        class="day-item"
+      >
+        <div class="day-row">
+          <div class="day-info">
+            <h3 class="day-name">{{ dayForm.dayName }}</h3>
+          </div>
+          
+          <div class="day-status">
+            <v-chip
+              :color="dayForm.isUnavailable ? '#e9ecef' : '#e8f5e8'"
+              :text-color="dayForm.isUnavailable ? '#6c757d' : '#2d5016'"
+              size="small"
+              class="status-chip"
+            >
+              {{ getDayStatus(dayForm) }}
+            </v-chip>
+          </div>
+          
+          <div class="day-actions">
+            <v-btn
+              v-if="dayForm.isUnavailable"
+              color="#2c3e50"
+              variant="contained"
+              size="small"
+              rounded="lg"
+              @click="dayForm.isUnavailable = false; toggleTimeInputs(dayIndex)"
+              class="action-btn"
+            >
+              Mark Available
+            </v-btn>
+            <v-btn
+              v-else
+              color="transparent"
+              variant="outlined"
+              size="small"
+              rounded="lg"
+              @click="toggleTimeInputs(dayIndex)"
+              class="edit-btn"
+            >
+              <v-icon size="16" class="mr-1">mdi-pencil</v-icon>
+              Edit
+            </v-btn>
+          </div>
+        </div>
+
+        <!-- Expandable Time Input Section -->
+        <v-expand-transition>
+          <div v-show="showTimeInputs[dayIndex] && !dayForm.isUnavailable" class="time-inputs-section">
+            <div class="time-ranges-container">
+              <div 
+                v-for="(range, rangeIndex) in dayForm.timeRanges" 
+                :key="`${dayForm.day}-${rangeIndex}`"
+                class="time-range-input"
+              >
+                <div class="time-input-row">
+                  <div class="time-selects">
+                    <v-select
+                      v-model="range.startTime"
+                      :items="timeOptions"
+                      label="Start"
+                      density="compact"
+                      variant="outlined"
+                      :disabled="loading"
+                      class="time-select"
+                      hide-details
+                    ></v-select>
+                    
+                    <span class="time-separator">to</span>
+                    
+                    <v-select
+                      v-model="range.endTime"
+                      :items="timeOptions"
+                      label="End"
+                      density="compact"
+                      variant="outlined"
+                      :disabled="loading"
+                      class="time-select"
+                      hide-details
+                    ></v-select>
+                  </div>
+                  
+                  <div class="range-actions">
+                    <v-btn
+                      v-if="rangeIndex === dayForm.timeRanges.length - 1 && dayForm.timeRanges.length < 4"
+                      icon
+                      size="small"
+                      color="#28a745"
+                      variant="text"
+                      @click="addTimeRange(dayForm)"
+                    >
+                      <v-icon size="18">mdi-plus</v-icon>
+                    </v-btn>
+                    
+                    <v-btn
+                      v-if="dayForm.timeRanges.length > 1"
+                      icon
+                      size="small"
+                      color="#dc3545"
+                      variant="text"
+                      @click="removeTimeRange(dayForm, rangeIndex)"
+                    >
+                      <v-icon size="18">mdi-delete</v-icon>
+                    </v-btn>
+                  </div>
+                </div>
+                
+                <!-- Validation Error -->
+                <div v-if="validateTimeRanges(dayForm)" class="validation-error">
+                  {{ validateTimeRanges(dayForm) }}
+                </div>
+              </div>
+
+              <!-- Action Buttons -->
+              <div class="input-actions">
+                <v-btn
+                  variant="outlined"
+                  size="small"
+                  color="#dc3545"
+                  @click="dayForm.isUnavailable = true; showTimeInputs[dayIndex] = false"
+                  class="mr-2"
+                >
+                  Mark Unavailable
+                </v-btn>
+                <v-btn
+                  variant="contained"
+                  size="small"
+                  color="#28a745"
+                  @click="showTimeInputs[dayIndex] = false"
+                >
+                  Done
+                </v-btn>
+              </div>
+            </div>
+          </div>
+        </v-expand-transition>
+      </div>
+    </div>
 
     <!-- Loading Overlay -->
     <v-overlay v-model="loading" class="align-center justify-center">
-      <v-progress-circular
-        color="primary"
-        size="64"
-        indeterminate
-      ></v-progress-circular>
+      <v-progress-circular color="#2c3e50" size="64" indeterminate></v-progress-circular>
     </v-overlay>
 
-    <!-- Snackbar for notifications -->
+    <!-- Success/Error Snackbar -->
     <v-snackbar
       v-model="snackbar"
       :color="snackbarColor"
       :timeout="3000"
       location="bottom right"
+      rounded="lg"
     >
       {{ snackbarText }}
       <template v-slot:actions>
-        <v-btn
-          variant="text"
-          @click="snackbar = false"
-        >
-          Close
-        </v-btn>
+        <v-btn variant="text" @click="snackbar = false">Close</v-btn>
       </template>
     </v-snackbar>
-  </v-container>
+  </div>
 
   <!-- Access Denied -->
-  <v-container v-else class="text-center">
-    <v-icon size="64" color="grey">mdi-lock</v-icon>
-    <h2 class="text-h5 mt-4 mb-2">Access Denied</h2>
-    <p class="text-body-1 text-grey">You don't have permission to access this page.</p>
-    <v-btn color="primary" @click="router.push({ name: 'dashboard' })">
-      Go to Dashboard
-    </v-btn>
-  </v-container>
+  <div v-else class="access-denied">
+    <v-icon size="64" color="#6c757d">mdi-lock</v-icon>
+    <h2>Access Denied</h2>
+    <p>You don't have permission to access this page.</p>
+    <v-btn color="#2c3e50" @click="router.push({ name: 'dashboard' })">Go to Dashboard</v-btn>
+  </div>
 </template>
 
 <style scoped>
-.availability-grid {
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  overflow: hidden;
+.availability-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  background-color: #f8f9fa;
+  min-height: 100vh;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+  gap: 2rem;
+}
+
+.header-content {
+  flex: 1;
+}
+
+.page-title {
+  font-size: 2rem;
+  font-weight: 600;
+  color: #212529;
+  margin: 0 0 0.5rem 0;
+  line-height: 1.2;
+}
+
+.page-subtitle {
+  font-size: 1rem;
+  color: #6c757d;
+  margin: 0;
+  font-weight: 400;
+}
+
+.save-btn {
+  background-color: #2c3e50 !important;
+  color: white !important;
+  font-weight: 600;
+  text-transform: none;
+  box-shadow: none;
+}
+
+.save-btn:hover {
+  background-color: #1a252f !important;
+}
+
+.weekly-summary-card {
+  background-color: white !important;
+  border: 1px solid #e9ecef;
+  margin-bottom: 1.5rem;
+}
+
+.summary-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #495057;
+  margin: 0;
+}
+
+.summary-subtitle {
+  font-size: 0.875rem;
+  color: #6c757d;
+  margin: 0.25rem 0 1rem 0;
+}
+
+.hours-display {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.hours-number {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #2c3e50;
+  line-height: 1;
+}
+
+.hours-label {
+  font-size: 0.875rem;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.days-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.day-item {
+  background-color: white;
+  border: 1px solid #e9ecef;
+  border-bottom: none;
+}
+
+.day-item:first-child {
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+}
+
+.day-item:last-child {
+  border-bottom: 1px solid #e9ecef;
+  border-bottom-left-radius: 0.5rem;
+  border-bottom-right-radius: 0.5rem;
 }
 
 .day-row {
-  border-bottom: 1px solid #f5f5f5;
-  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  gap: 1rem;
 }
 
-.day-row:hover {
-  background-color: #f8f9fa;
+.day-info {
+  flex: 0 0 120px;
 }
 
-.unavailable-row {
-  background-color: #fafafa;
-  opacity: 0.7;
+.day-name {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #212529;
+  margin: 0;
 }
 
-.unavailable-row .v-select {
-  opacity: 0.5;
+.day-status {
+  flex: 1;
+  display: flex;
+  align-items: center;
 }
 
-.text-h4 {
-  color: #1976d2;
+.status-chip {
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 6px !important;
+  height: 28px;
 }
 
-.v-btn-group {
-  flex-wrap: wrap;
+.day-actions {
+  flex: 0 0 auto;
+}
+
+.action-btn {
+  background-color: #2c3e50 !important;
+  color: white !important;
+  text-transform: none;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.action-btn:hover {
+  background-color: #1a252f !important;
+}
+
+.edit-btn {
+  color: #6c757d !important;
+  border-color: #dee2e6 !important;
+  text-transform: none;
+  font-weight: 500;
+}
+
+.edit-btn:hover {
+  background-color: #f8f9fa !important;
+  border-color: #adb5bd !important;
+}
+
+.time-inputs-section {
+  border-top: 1px solid #f8f9fa;
+  padding: 1.5rem 1.5rem;
+  background-color: #fdfdfd;
+}
+
+.time-ranges-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.time-range-input {
+  background-color: white;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.time-input-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.time-selects {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.time-select {
+  max-width: 140px;
+}
+
+.time-separator {
+  color: #6c757d;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.range-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.input-actions {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #f8f9fa;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.validation-error {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: #dc3545;
+  font-weight: 500;
+}
+
+.access-denied {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  text-align: center;
+  gap: 1rem;
+}
+
+.access-denied h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #495057;
+  margin: 0;
+}
+
+.access-denied p {
+  color: #6c757d;
+  margin: 0;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .availability-page {
+    padding: 1rem 0.75rem;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1.5rem;
+  }
+
+  .day-row {
+    padding: 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .day-info {
+    flex: 0 0 100%;
+    order: 1;
+  }
+
+  .day-status {
+    flex: 1;
+    order: 2;
+  }
+
+  .day-actions {
+    flex: 0 0 auto;
+    order: 3;
+  }
+
+  .time-selects {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .time-select {
+    max-width: none;
+  }
+
+  .time-separator {
+    display: none;
+  }
+
+  .time-input-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .range-actions {
+    justify-content: center;
+  }
+}
+
+/* Animation */
+.v-enter-active,
+.v-leave-active {
+  transition: all 0.3s ease;
+}
+
+.v-enter-from,
+.v-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 </style>
