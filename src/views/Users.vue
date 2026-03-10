@@ -264,7 +264,6 @@ onMounted(() => {
             <th class="text-white">Phone</th>
             <th class="text-white text-center">Manager</th>
             <th class="text-white text-center">Super Admin</th>
-            <th class="text-white text-center">Active</th>
             <th class="text-white text-center">Actions</th>
           </tr>
         </thead>
@@ -308,10 +307,6 @@ onMounted(() => {
             <td class="text-center">
               <v-icon v-if="u.is_super_admin" color="primary" size="20">mdi-check-circle</v-icon>
               <v-icon v-else color="grey-lighten-1" size="20">mdi-close-circle-outline</v-icon>
-            </td>
-            <td class="text-center">
-              <v-icon v-if="u.is_active" color="success" size="20">mdi-check-circle</v-icon>
-              <v-icon v-else color="error" size="20">mdi-close-circle</v-icon>
             </td>
             <td class="text-center">
               <v-btn icon size="small" variant="text" color="blue" @click="editUser(u)" class="mr-1">
