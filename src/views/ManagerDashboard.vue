@@ -23,7 +23,7 @@
       <v-col cols="12" md="6">
         <v-card class="pa-2" elevation="2" style="max-height: 250px; overflow-y: auto;">
           <div class="d-flex align-center pa-2">
-            <span class="text-h6 font-weight-bold">Area Workers</span>
+            <span class="text-h6 font-weight-bold">{{'Workers' }}</span>
           </div>
           <v-table density="compact">
             <thead>
@@ -51,8 +51,12 @@
 
       <v-col cols="12" md="6">
         <v-card class="pa-2" elevation="2" style="max-height: 250px; overflow-y: auto;">
-          <div class="d-flex align-center pa-2">
-            <span class="text-h6 font-weight-bold">Area Positions</span>
+          <div class="d-flex align-center justify-space-between pa-2">
+            <span class="text-h6 font-weight-bold">{{'Positions' }}</span>
+            <v-btn color="primary" size="small" @click="openPositionDialog">
+              <v-icon start>mdi-plus</v-icon>
+              Create Position
+            </v-btn>
           </div>
           <v-table density="compact">
             <thead>
@@ -115,6 +119,42 @@
       </v-col>
     </v-row>
 
+    <!-- Create Position Dialog -->
+    <v-dialog v-model="showPositionDialog" max-width="520px">
+      <v-card>
+        <v-card-title class="pa-4">
+          <span class="text-h6">Create New Position</span>
+        </v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="positionFormData.position_name"
+            label="Position Name"
+            placeholder="e.g. Cashier, Floor Supervisor"
+            :rules="[v => !!v || 'Position name is required']"
+            required
+            autofocus
+          ></v-text-field>
+          <v-select
+            v-model="positionFormData.worker_ids"
+            :items="allUsers"
+            :item-title="u => u.fName + ' ' + u.lName + ' (' + u.email + ')'"
+            item-value="user_id"
+            label="Assign Workers (optional)"
+            multiple
+            chips
+            closable-chips
+            clearable
+          ></v-select>
+          <v-alert v-if="positionError" type="error" class="mt-2" density="compact">{{ positionError }}</v-alert>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer></v-spacer>
+          <v-btn text @click="showPositionDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="savingPosition" @click="savePosition">Create</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Shift Create/Edit Dialog -->
     <v-dialog v-model="showShiftDialog" max-width="500px">
       <v-card>
@@ -151,7 +191,58 @@ export default {
     const area = ref({ area_id: null, area_name: "" });
     const workers = ref([]);
     const areaPositions = ref([]);
+    const allUsers = ref([]);
     const schedule = ref([]);
+
+    // Position creation
+    const showPositionDialog = ref(false);
+    const positionFormData = ref({ position_name: "", worker_ids: [] });
+    const savingPosition = ref(false);
+    const positionError = ref("");
+
+    const openPositionDialog = () => {
+      positionFormData.value = { position_name: "", worker_ids: [] };
+      positionError.value = "";
+      showPositionDialog.value = true;
+    };
+
+    const savePosition = async () => {
+      if (!positionFormData.value.position_name.trim()) {
+        positionError.value = "Position name is required.";
+        return;
+      }
+      if (!area.value.area_id) {
+        positionError.value = "No area found for this manager.";
+        return;
+      }
+      savingPosition.value = true;
+      positionError.value = "";
+      try {
+        const posRes = await PositionServices.create({
+          area_id: area.value.area_id,
+          position_name: positionFormData.value.position_name.trim(),
+          is_manager: false
+        });
+        const newPositionId = posRes.data.position_id;
+        // Assign selected workers
+        for (const userId of positionFormData.value.worker_ids) {
+          await PositionUserServices.create({
+            position_id: newPositionId,
+            user_id: userId,
+            is_active: true
+          });
+        }
+        showPositionDialog.value = false;
+        // Refresh positions and workers
+        const puRes = await PositionUserServices.getAll();
+        const allPosRes = await PositionServices.getAll();
+        await fetchAreaWorkers(area.value.area_id, allPosRes.data, puRes.data);
+      } catch (e) {
+        positionError.value = e?.response?.data?.message || "Failed to create position. Please try again.";
+      } finally {
+        savingPosition.value = false;
+      }
+    };
 
     const showShiftDialog = ref(false);
     const shiftDialogTitle = ref("Add Shift");
@@ -231,6 +322,7 @@ export default {
         )];
         // Fetch all users and filter to area workers
         const userRes = await UserServices.getAll();
+        allUsers.value = userRes.data;
         workers.value = userRes.data.filter(u => userIds.includes(Number(u.user_id)));
       } catch (e) {
         console.error("Error fetching area workers:", e);
@@ -245,7 +337,14 @@ export default {
       area,
       workers,
       areaPositions,
+      allUsers,
       schedule,
+      showPositionDialog,
+      positionFormData,
+      savingPosition,
+      positionError,
+      openPositionDialog,
+      savePosition,
       getWorkerName,
       showShiftDialog,
       shiftDialogTitle,
