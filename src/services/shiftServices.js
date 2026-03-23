@@ -9,4 +9,13 @@ export default {
     getByUser(userId) {
         return apiClient.get(`shifts/user/${userId}`);    
     },
+    create(data) {
+        return apiClient.post("shifts", data);
+    },
+    update(id, data) {
+        return apiClient.put(`shifts/${id}`, data);
+    },
+    delete(id) {
+        return apiClient.delete(`shifts/${id}`);
+    },
 };
