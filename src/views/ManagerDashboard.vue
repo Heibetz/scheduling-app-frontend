@@ -204,8 +204,12 @@
     <v-row class="mb-4">
       <v-col cols="12" md="6">
         <v-card class="pa-2" elevation="2" style="max-height: 250px; overflow-y: auto;">
-          <div class="d-flex align-center pa-2">
+          <div class="d-flex align-center justify-space-between pa-2">
             <span class="text-h6 font-weight-bold">Workers</span>
+            <v-btn color="primary" size="small" @click="openAddWorkerDialog">
+              <v-icon start>mdi-plus</v-icon>
+              Add Worker
+            </v-btn>
           </div>
           <v-table density="compact">
             <thead>
@@ -213,7 +217,7 @@
                 <th>First Name</th>
                 <th>Last Name</th>
                 <th>Email</th>
-                <th>Active</th>
+                <th class="text-center">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -224,7 +228,11 @@
                 <td>{{ worker.fName }}</td>
                 <td>{{ worker.lName }}</td>
                 <td>{{ worker.email }}</td>
-                <td>{{ worker.is_active ? 'Yes' : 'No' }}</td>
+                <td class="text-center">
+                  <v-btn icon size="small" variant="text" color="blue" @click="openEditWorkerDialog(worker)">
+                    <v-icon size="20">mdi-pencil</v-icon>
+                  </v-btn>
+                </td>
               </tr>
             </tbody>
           </v-table>
@@ -261,6 +269,90 @@
       </v-col>
     </v-row>
 
+    <v-dialog v-model="showEditWorkerDialog" max-width="560px">
+      <v-card v-if="editingWorker">
+        <v-card-title class="pa-4" style="background-color: #80162B; color: white">
+          <v-icon color="white" class="mr-2">mdi-account-edit</v-icon>
+          Edit Worker: {{ editingWorker.fName }} {{ editingWorker.lName }}
+        </v-card-title>
+        <v-card-text class="pa-4">
+          <p class="text-subtitle-2 mb-2">Current Positions</p>
+          <div v-if="editingWorkerPositions.length === 0" class="text-grey text-body-2 mb-3">No positions assigned</div>
+          <v-chip
+            v-for="wp in editingWorkerPositions"
+            :key="wp.position_user_id"
+            class="mr-2 mb-2"
+            closable
+            color="primary"
+            variant="tonal"
+            @click:close="removeWorkerPosition(wp.position_user_id)"
+          >
+            {{ wp.position_name }}
+          </v-chip>
+
+          <v-divider class="my-4"></v-divider>
+
+          <p class="text-subtitle-2 mb-2">Add Position</p>
+          <div class="d-flex align-center ga-2">
+            <v-select
+              v-model="addPositionForWorkerId"
+              :items="availablePositionsForWorker"
+              item-title="position_name"
+              item-value="position_id"
+              label="Select Position"
+              density="compact"
+              hide-details
+              :disabled="availablePositionsForWorker.length === 0"
+              class="flex-grow-1"
+            />
+            <v-btn
+              color="primary"
+              size="small"
+              :disabled="!addPositionForWorkerId"
+              :loading="savingWorkerEdit"
+              @click="addWorkerPosition"
+            >
+              <v-icon start>mdi-plus</v-icon>
+              Add
+            </v-btn>
+          </div>
+          <div v-if="availablePositionsForWorker.length === 0" class="text-caption text-grey mt-1">
+            This worker is assigned to all positions in this area.
+          </div>
+
+          <v-alert v-if="editWorkerError" type="error" density="compact" class="mt-3">{{ editWorkerError }}</v-alert>
+        </v-card-text>
+        <v-card-actions class="pa-4 pt-0">
+          <v-btn color="error" variant="tonal" @click="confirmRemoveWorker" :loading="savingWorkerEdit">
+            <v-icon start>mdi-account-remove</v-icon>
+            Remove from Area
+          </v-btn>
+          <v-spacer />
+          <v-btn variant="text" @click="showEditWorkerDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="showRemoveWorkerConfirm" max-width="400px">
+      <v-card>
+        <v-card-title class="pa-4" style="background-color: #EE5044; color: white">
+          <v-icon color="white" class="mr-2">mdi-alert-circle</v-icon>
+          Remove Worker
+        </v-card-title>
+        <v-card-text class="pa-6 text-center" v-if="editingWorker">
+          <p class="text-body-1">
+            Remove <strong>{{ editingWorker.fName }} {{ editingWorker.lName }}</strong> from all positions in this area?
+          </p>
+          <p class="text-caption text-grey mt-2">This will unassign them from every position in this area.</p>
+        </v-card-text>
+        <v-card-actions class="pa-4 pt-0">
+          <v-spacer />
+          <v-btn variant="text" @click="showRemoveWorkerConfirm = false">Cancel</v-btn>
+          <v-btn color="error" variant="flat" :loading="savingWorkerEdit" @click="removeWorkerFromArea">Remove</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-dialog v-model="showCreateScheduleDialog" max-width="560px">
       <v-card>
         <v-card-title class="pa-4">Create Schedule</v-card-title>
@@ -278,7 +370,6 @@
             item-title="label"
             item-value="value"
             label="Schedule Type"
-            :menu-props="{ location: 'bottom', eager: true }"
             required
           />
 
@@ -341,7 +432,6 @@
             item-title="position_name"
             item-value="position_id"
             label="Position"
-            :menu-props="{ location: 'bottom', eager: true }"
             required
           />
 
@@ -351,7 +441,6 @@
             item-title="title"
             item-value="value"
             label="Assign Worker (optional)"
-            :menu-props="{ location: 'bottom', eager: true }"
             clearable
           />
 
@@ -407,6 +496,39 @@
           <v-spacer />
           <v-btn text @click="showPositionDialog = false">Cancel</v-btn>
           <v-btn color="primary" :loading="savingPosition" @click="savePosition">Create</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="showAddWorkerDialog" max-width="520px">
+      <v-card>
+        <v-card-title class="pa-4">
+          <span class="text-h6">Add Worker by Email</span>
+        </v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="addWorkerEmail"
+            label="User Email"
+            placeholder="Enter worker's email address"
+            :rules="[v => !!v || 'Email is required']"
+            required
+            autofocus
+          />
+          <v-select
+            v-model="addWorkerPositionId"
+            :items="areaPositions"
+            item-title="position_name"
+            item-value="position_id"
+            label="Assign to Position"
+            required
+          />
+          <v-alert v-if="addWorkerError" type="error" class="mt-2" density="compact">{{ addWorkerError }}</v-alert>
+          <v-alert v-if="addWorkerSuccess" type="success" class="mt-2" density="compact">{{ addWorkerSuccess }}</v-alert>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn text @click="showAddWorkerDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="savingWorker" @click="saveWorker">Add</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -490,6 +612,45 @@ export default {
     const positionFormData = ref({ position_name: "", worker_ids: [] });
     const savingPosition = ref(false);
     const positionError = ref("");
+
+    const showAddWorkerDialog = ref(false);
+    const addWorkerEmail = ref("");
+    const addWorkerPositionId = ref(null);
+    const addWorkerError = ref("");
+    const addWorkerSuccess = ref("");
+    const savingWorker = ref(false);
+
+    const allPositionUsers = ref([]);
+    const showEditWorkerDialog = ref(false);
+    const showRemoveWorkerConfirm = ref(false);
+    const editingWorker = ref(null);
+    const editWorkerError = ref("");
+    const savingWorkerEdit = ref(false);
+    const addPositionForWorkerId = ref(null);
+
+    const editingWorkerPositions = computed(() => {
+      if (!editingWorker.value) return [];
+      const areaPositionIds = areaPositions.value.map((p) => Number(p.position_id));
+      return allPositionUsers.value
+        .filter(
+          (pu) =>
+            Number(pu.user_id) === Number(editingWorker.value.user_id) &&
+            areaPositionIds.includes(Number(pu.position_id))
+        )
+        .map((pu) => {
+          const pos = areaPositions.value.find((p) => Number(p.position_id) === Number(pu.position_id));
+          return {
+            position_user_id: pu.position_user_id,
+            position_id: pu.position_id,
+            position_name: pos ? pos.position_name : "Unknown",
+          };
+        });
+    });
+
+    const availablePositionsForWorker = computed(() => {
+      const assignedIds = editingWorkerPositions.value.map((wp) => Number(wp.position_id));
+      return areaPositions.value.filter((p) => !assignedIds.includes(Number(p.position_id)));
+    });
 
     const calendarEditConfig = {
       create: true,
@@ -853,6 +1014,142 @@ export default {
       }
     };
 
+    const openEditWorkerDialog = (worker) => {
+      editingWorker.value = { ...worker };
+      addPositionForWorkerId.value = null;
+      editWorkerError.value = "";
+      showEditWorkerDialog.value = true;
+    };
+
+    const addWorkerPosition = async () => {
+      if (!addPositionForWorkerId.value || !editingWorker.value) return;
+      savingWorkerEdit.value = true;
+      editWorkerError.value = "";
+      try {
+        await PositionUserServices.create({
+          position_id: addPositionForWorkerId.value,
+          user_id: editingWorker.value.user_id,
+          is_active: true,
+        });
+        addPositionForWorkerId.value = null;
+        const puRes = await PositionUserServices.getAll();
+        allPositionUsers.value = puRes.data;
+        const allPosRes = await PositionServices.getAll();
+        await fetchAreaWorkers(area.value.area_id, allPosRes.data, puRes.data);
+      } catch (error) {
+        editWorkerError.value = error?.response?.data?.message || "Failed to add position.";
+      } finally {
+        savingWorkerEdit.value = false;
+      }
+    };
+
+    const removeWorkerPosition = async (positionUserId) => {
+      savingWorkerEdit.value = true;
+      editWorkerError.value = "";
+      try {
+        await PositionUserServices.delete(positionUserId);
+        const puRes = await PositionUserServices.getAll();
+        allPositionUsers.value = puRes.data;
+        const allPosRes = await PositionServices.getAll();
+        await fetchAreaWorkers(area.value.area_id, allPosRes.data, puRes.data);
+      } catch (error) {
+        editWorkerError.value = error?.response?.data?.message || "Failed to remove position.";
+      } finally {
+        savingWorkerEdit.value = false;
+      }
+    };
+
+    const confirmRemoveWorker = () => {
+      showRemoveWorkerConfirm.value = true;
+    };
+
+    const removeWorkerFromArea = async () => {
+      if (!editingWorker.value) return;
+      savingWorkerEdit.value = true;
+      editWorkerError.value = "";
+      try {
+        const toDelete = editingWorkerPositions.value;
+        for (const wp of toDelete) {
+          await PositionUserServices.delete(wp.position_user_id);
+        }
+        showRemoveWorkerConfirm.value = false;
+        showEditWorkerDialog.value = false;
+        editingWorker.value = null;
+        const puRes = await PositionUserServices.getAll();
+        allPositionUsers.value = puRes.data;
+        const allPosRes = await PositionServices.getAll();
+        await fetchAreaWorkers(area.value.area_id, allPosRes.data, puRes.data);
+      } catch (error) {
+        editWorkerError.value = error?.response?.data?.message || "Failed to remove worker.";
+      } finally {
+        savingWorkerEdit.value = false;
+      }
+    };
+
+    const openAddWorkerDialog = () => {
+      addWorkerEmail.value = "";
+      addWorkerPositionId.value = areaPositions.value[0]?.position_id || null;
+      addWorkerError.value = "";
+      addWorkerSuccess.value = "";
+      showAddWorkerDialog.value = true;
+    };
+
+    const saveWorker = async () => {
+      addWorkerError.value = "";
+      addWorkerSuccess.value = "";
+
+      if (!addWorkerEmail.value.trim()) {
+        addWorkerError.value = "Email is required.";
+        return;
+      }
+      if (!addWorkerPositionId.value) {
+        addWorkerError.value = "Please select a position.";
+        return;
+      }
+
+      savingWorker.value = true;
+      try {
+        const usersRes = await UserServices.getAll();
+        const matchedUser = usersRes.data.find(
+          (u) => u.email.toLowerCase() === addWorkerEmail.value.trim().toLowerCase()
+        );
+
+        if (!matchedUser) {
+          addWorkerError.value = "No user found with that email address.";
+          return;
+        }
+
+        const existingPu = await PositionUserServices.getAll();
+        const alreadyAssigned = existingPu.data.some(
+          (pu) =>
+            Number(pu.user_id) === Number(matchedUser.user_id) &&
+            Number(pu.position_id) === Number(addWorkerPositionId.value)
+        );
+
+        if (alreadyAssigned) {
+          addWorkerError.value = "This user is already assigned to that position.";
+          return;
+        }
+
+        await PositionUserServices.create({
+          position_id: addWorkerPositionId.value,
+          user_id: matchedUser.user_id,
+          is_active: true,
+        });
+
+        addWorkerSuccess.value = `${matchedUser.fName} ${matchedUser.lName} has been added.`;
+        addWorkerEmail.value = "";
+
+        const puRes = await PositionUserServices.getAll();
+        const allPosRes = await PositionServices.getAll();
+        await fetchAreaWorkers(area.value.area_id, allPosRes.data, puRes.data);
+      } catch (error) {
+        addWorkerError.value = error?.response?.data?.message || "Failed to add worker.";
+      } finally {
+        savingWorker.value = false;
+      }
+    };
+
     const openPositionDialog = () => {
       positionFormData.value = { position_name: "", worker_ids: [] };
       positionError.value = "";
@@ -945,6 +1242,7 @@ export default {
       try {
         const areaPosFiltered = positions.filter((p) => Number(p.area_id) === Number(areaId));
         areaPositions.value = areaPosFiltered;
+        allPositionUsers.value = positionUsers;
 
         const areaPositionIds = areaPosFiltered.map((p) => Number(p.position_id));
         const userIds = [
@@ -1055,6 +1353,27 @@ export default {
       positionError,
       openPositionDialog,
       savePosition,
+      showAddWorkerDialog,
+      addWorkerEmail,
+      addWorkerPositionId,
+      addWorkerError,
+      addWorkerSuccess,
+      savingWorker,
+      openAddWorkerDialog,
+      saveWorker,
+      showEditWorkerDialog,
+      showRemoveWorkerConfirm,
+      editingWorker,
+      editingWorkerPositions,
+      availablePositionsForWorker,
+      editWorkerError,
+      savingWorkerEdit,
+      addPositionForWorkerId,
+      openEditWorkerDialog,
+      addWorkerPosition,
+      removeWorkerPosition,
+      confirmRemoveWorker,
+      removeWorkerFromArea,
     };
   },
 };
