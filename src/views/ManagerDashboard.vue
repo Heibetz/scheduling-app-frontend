@@ -10,9 +10,9 @@
           <v-icon start>mdi-account-group</v-icon>
           {{ workers.length }} Workers
         </v-chip>
-        <v-btn color="secondary">
+        <v-btn color="secondary" @click="openAreaTasksDialog">
           <v-icon class="mr-2">mdi-checkbox-marked-outline</v-icon>
-          Area Tasks
+          Task Lists
         </v-btn>
       </v-col>
     </v-row>
@@ -355,6 +355,87 @@
             clearable
           />
 
+          <!-- Assigned Task Lists Section -->
+          <div class="mt-4">
+            <div class="d-flex align-center justify-space-between mb-2">
+              <span class="text-subtitle-2">Assigned Task Lists</span>
+              <v-btn
+                v-if="shiftAssignedTasks.length > 0"
+                size="small"
+                variant="tonal"
+                color="info"
+                @click="showShiftTaskDetails = !showShiftTaskDetails"
+              >
+                <v-icon start>{{ showShiftTaskDetails ? 'mdi-chevron-up' : 'mdi-eye' }}</v-icon>
+                {{ showShiftTaskDetails ? 'Hide Details' : 'View Tasks' }}
+              </v-btn>
+            </div>
+            <v-chip-group v-if="shiftAssignedTasks.length > 0" class="mb-2">
+              <v-chip
+                v-for="st in shiftAssignedTasks"
+                :key="st.shift_task_id || st.task_id"
+                closable
+                @click:close="unassignTaskFromShift(st)"
+                color="primary"
+                variant="tonal"
+              >
+                {{ getTaskName(st.task_id) }}
+              </v-chip>
+            </v-chip-group>
+            <!-- Expanded task list details with items -->
+            <v-card v-if="showShiftTaskDetails && shiftAssignedTasks.length > 0" variant="outlined" class="mb-3">
+              <v-list density="compact">
+                <template v-for="st in shiftAssignedTasks" :key="st.shift_task_id || st.task_id">
+                  <v-list-item>
+                    <v-list-item-title class="font-weight-medium">{{ getTaskName(st.task_id) }}</v-list-item-title>
+                    <v-list-item-subtitle>{{ getTaskDescription(st.task_id) }}</v-list-item-subtitle>
+                  </v-list-item>
+                  <!-- Show task list items -->
+                  <v-list-item
+                    v-for="item in (taskListItemsMap[st.task_id] || [])"
+                    :key="item.task_list_item_id"
+                    class="pl-8"
+                  >
+                    <template #prepend>
+                      <v-icon size="small" color="grey">mdi-circle-small</v-icon>
+                    </template>
+                    <v-list-item-title style="font-size:0.85em">{{ item.description || 'No description' }}</v-list-item-title>
+                  </v-list-item>
+                  <v-divider />
+                </template>
+              </v-list>
+            </v-card>
+            <div v-if="shiftAssignedTasks.length === 0" class="text-grey mb-2" style="font-size:0.9em">No task lists assigned to this shift.</div>
+            <div class="d-flex align-center ga-2">
+              <v-select
+                v-model="shiftSelectedTaskId"
+                :items="shiftAvailableTasks"
+                item-title="task_name"
+                item-value="task_id"
+                label="Select task list to assign"
+                density="compact"
+                hide-details
+                class="flex-grow-1"
+                :menu-props="{ location: 'bottom', eager: true }"
+                clearable
+              />
+              <v-btn icon size="small" color="primary" @click="openInlineTaskCreate">
+                <v-icon>mdi-playlist-plus</v-icon>
+              </v-btn>
+            </div>
+            <!-- Inline task list creation inside shift dialog -->
+            <v-card v-if="showInlineTaskForm" variant="outlined" class="pa-3 mt-2">
+              <div class="text-subtitle-2 mb-2">Quick Create Task List</div>
+              <v-text-field v-model="inlineTaskForm.task_name" label="Task List Name" density="compact" required />
+              <v-textarea v-model="inlineTaskForm.description" label="Description" rows="2" density="compact" />
+              <v-alert v-if="inlineTaskError" type="error" density="compact" class="mb-2">{{ inlineTaskError }}</v-alert>
+              <div class="d-flex ga-2">
+                <v-btn size="small" color="primary" :loading="savingInlineTask" @click="saveInlineTask">Create</v-btn>
+                <v-btn size="small" variant="text" @click="showInlineTaskForm = false">Cancel</v-btn>
+              </div>
+            </v-card>
+          </div>
+
           <v-alert v-if="shiftError" type="error" density="compact" class="mt-2">{{ shiftError }}</v-alert>
         </v-card-text>
         <v-card-actions class="pa-4">
@@ -411,6 +492,112 @@
       </v-card>
     </v-dialog>
 
+    <!-- Task Lists Dialog -->
+    <v-dialog v-model="showAreaTasksDialog" max-width="900px">
+      <v-card>
+        <v-card-title class="pa-4 d-flex align-center justify-space-between">
+          <span class="text-h6">Task Lists</span>
+          <v-btn size="small" color="primary" @click="openNewTaskForm">
+            <v-icon start>mdi-plus</v-icon>
+            New Task List
+          </v-btn>
+        </v-card-title>
+        <v-card-text>
+          <!-- Inline create / edit form for task list -->
+          <v-card v-if="showTaskForm" variant="outlined" class="pa-3 mb-4">
+            <div class="text-subtitle-2 mb-2">{{ editingTaskId ? 'Edit Task List' : 'Create Task List' }}</div>
+            <v-text-field v-model="taskForm.task_name" label="Task List Name" density="compact" required />
+            <v-textarea v-model="taskForm.description" label="Description" rows="2" density="compact" />
+            <v-alert v-if="taskError" type="error" density="compact" class="mb-2">{{ taskError }}</v-alert>
+            <div class="d-flex ga-2">
+              <v-btn size="small" color="primary" :loading="savingTask" @click="saveTask">
+                {{ editingTaskId ? 'Update' : 'Create' }}
+              </v-btn>
+              <v-btn size="small" variant="text" @click="cancelTaskForm">Cancel</v-btn>
+            </div>
+          </v-card>
+          <!-- Task lists -->
+          <div v-if="areaTasks.length > 0">
+            <v-expansion-panels variant="accordion" class="mb-2">
+              <v-expansion-panel
+                v-for="task in areaTasks"
+                :key="task.task_id"
+                @group:selected="loadTaskListItems(task.task_id)"
+              >
+                <v-expansion-panel-title>
+                  <div class="d-flex align-center justify-space-between w-100">
+                    <div>
+                      <span class="font-weight-medium">{{ task.task_name }}</span>
+                      <span class="text-grey ml-2" style="font-size:0.85em">
+                        {{ task.description ? '— ' + task.description : '' }}
+                      </span>
+                      <v-chip size="x-small" color="secondary" variant="tonal" class="ml-2">
+                        {{ (taskListItemsMap[task.task_id] || []).length }} tasks
+                      </v-chip>
+                    </div>
+                    <div class="d-flex align-center ga-1" @click.stop>
+                      <v-btn size="x-small" icon variant="text" @click.stop="editAreaTask(task)">
+                        <v-icon>mdi-pencil</v-icon>
+                      </v-btn>
+                      <v-btn size="x-small" icon variant="text" color="error" @click.stop="deleteAreaTask(task.task_id)">
+                        <v-icon>mdi-delete</v-icon>
+                      </v-btn>
+                    </div>
+                  </div>
+                </v-expansion-panel-title>
+                <v-expansion-panel-text>
+                  <!-- Task items within this task list -->
+                  <div class="mb-2">
+                    <div class="d-flex align-center justify-space-between mb-2">
+                      <span class="text-subtitle-2">Tasks in this list</span>
+                    </div>
+                    <!-- Existing items -->
+                    <v-list v-if="(taskListItemsMap[task.task_id] || []).length > 0" density="compact" class="pa-0">
+                      <v-list-item
+                        v-for="item in taskListItemsMap[task.task_id]"
+                        :key="item.task_list_item_id"
+                      >
+                        <template #prepend>
+                          <v-icon size="small" color="grey">mdi-circle-small</v-icon>
+                        </template>
+                        <v-list-item-title>{{ item.description || 'No description' }}</v-list-item-title>
+                        <template #append>
+                          <v-btn size="x-small" icon variant="text" color="error" @click="deleteTaskListItem(task.task_id, item.task_list_item_id)">
+                            <v-icon>mdi-close</v-icon>
+                          </v-btn>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                    <div v-else class="text-grey mb-2" style="font-size:0.85em">No tasks in this list yet.</div>
+                    <!-- Add new item form -->
+                    <div class="d-flex align-center ga-2 mt-2">
+                      <v-text-field
+                        v-model="newItemDescription[task.task_id]"
+                        label="Add a task"
+                        density="compact"
+                        hide-details
+                        class="flex-grow-1"
+                        @keyup.enter="addTaskListItem(task.task_id)"
+                      />
+                      <v-btn size="small" color="primary" variant="tonal" @click="addTaskListItem(task.task_id)">
+                        <v-icon start>mdi-plus</v-icon>
+                        Add
+                      </v-btn>
+                    </div>
+                  </div>
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
+          </div>
+          <div v-else class="text-center text-grey py-4">No task lists yet. Click "New Task List" to create one.</div>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showAreaTasksDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-dialog v-model="showDeleteScheduleDialog" max-width="440px">
       <v-card>
         <v-card-title>Delete Schedule</v-card-title>
@@ -439,6 +626,9 @@ import AreaServices from "../services/areaServices";
 import UserServices from "../services/userServices";
 import ScheduleServices from "../services/scheduleServices";
 import ShiftServices from "../services/shiftServices";
+import TaskServices from "../services/taskServices";
+import TaskListItemServices from "../services/taskListItemServices";
+import TaskListItemStatusServices from "../services/taskListItemStatusServices";
 import Utils from "../config/utils";
 
 const SCHEDULE_TYPE_OPTIONS = [
@@ -490,6 +680,30 @@ export default {
     const positionFormData = ref({ position_name: "", worker_ids: [] });
     const savingPosition = ref(false);
     const positionError = ref("");
+
+    // Area Tasks state
+    const showAreaTasksDialog = ref(false);
+    const areaTasks = ref([]);
+    const showTaskForm = ref(false);
+    const taskForm = ref({ task_name: "", description: "" });
+    const editingTaskId = ref(null);
+    const savingTask = ref(false);
+    const taskError = ref("");
+
+    // Shift-task assignment state
+    const shiftAssignedTasks = ref([]);
+    const shiftSelectedTaskId = ref(null);
+    const showInlineTaskForm = ref(false);
+    const inlineTaskForm = ref({ task_name: "", description: "" });
+    const savingInlineTask = ref(false);
+    const inlineTaskError = ref("");
+    const showShiftTaskDetails = ref(false);
+    const taskShiftMap = ref({});
+
+    // Task list items state
+    const taskListItemsMap = ref({});
+    const newItemDescription = ref({});
+    const shiftItemStatuses = ref({});
 
     const calendarEditConfig = {
       create: true,
@@ -697,8 +911,20 @@ export default {
       }
     };
 
-    const openShiftDialog = ({ shift = null, start = null, end = null } = {}) => {
+    const shiftAvailableTasks = computed(() => {
+      const assignedIds = shiftAssignedTasks.value.map((st) => Number(st.task_id));
+      return areaTasks.value.filter((t) => !assignedIds.includes(Number(t.task_id)));
+    });
+
+    const openShiftDialog = async ({ shift = null, start = null, end = null } = {}) => {
       shiftError.value = "";
+      showInlineTaskForm.value = false;
+      shiftSelectedTaskId.value = null;
+      showShiftTaskDetails.value = false;
+
+      // Make sure area tasks are loaded
+      await fetchAreaTasks();
+      await fetchAllTaskListItems();
 
       if (shift) {
         editingShiftId.value = shift.shift_id;
@@ -709,6 +935,8 @@ export default {
           position_id: shift.position_id,
           user_id: shift.user_id,
         };
+        await fetchShiftTasks(shift.shift_id);
+        await fetchShiftItemStatuses(shift.shift_id);
       } else {
         editingShiftId.value = null;
         shiftForm.value = {
@@ -718,6 +946,7 @@ export default {
           position_id: areaPositions.value[0]?.position_id || null,
           user_id: null,
         };
+        shiftAssignedTasks.value = [];
       }
 
       showShiftDialog.value = true;
@@ -824,10 +1053,28 @@ export default {
       };
 
       try {
-        if (editingShiftId.value) {
-          await ShiftServices.update(editingShiftId.value, payload);
+        let shiftId = editingShiftId.value;
+        if (shiftId) {
+          await ShiftServices.update(shiftId, payload);
         } else {
-          await ShiftServices.create(payload);
+          const shiftRes = await ShiftServices.create(payload);
+          shiftId = shiftRes?.data?.shift_id;
+        }
+        // Attach any locally-queued tasks for this shift
+        if (shiftId && shiftAssignedTasks.value.length > 0) {
+          for (const st of shiftAssignedTasks.value) {
+            // Only attach tasks that don't already have a shift_task_id (i.e. not yet saved)
+            if (!st.shift_task_id) {
+              try {
+                await TaskServices.attachTaskToShift(shiftId, st.task_id);
+              } catch (attachErr) {
+                // Ignore duplicate assignment errors (409)
+                if (attachErr?.response?.status !== 409) {
+                  console.error("Error attaching task:", attachErr);
+                }
+              }
+            }
+          }
         }
         showShiftDialog.value = false;
         await fetchShifts(activeSchedule.value.schedule_id);
@@ -894,6 +1141,289 @@ export default {
         positionError.value = error?.response?.data?.message || "Failed to create position. Please try again.";
       } finally {
         savingPosition.value = false;
+      }
+    };
+
+    // ─── Area Tasks methods ───
+    const fetchAreaTasks = async () => {
+      if (!area.value.area_id) return;
+      try {
+        const res = await TaskServices.getAll({ area_id: area.value.area_id });
+        areaTasks.value = res.data || [];
+      } catch (e) {
+        console.error("Error fetching area tasks:", e);
+      }
+    };
+
+    const fetchTaskShiftMap = async () => {
+      const map = {};
+      for (const task of areaTasks.value) {
+        try {
+          const res = await TaskServices.getShiftTasks({ task_id: task.task_id });
+          const shiftTasks = res.data || [];
+          map[task.task_id] = shiftTasks.map((st) => {
+            const shift = shifts.value.find((s) => Number(s.shift_id) === Number(st.shift_id));
+            if (shift) {
+              return {
+                shift_id: shift.shift_id,
+                shift_date: toDateOnly(shift.shift_date),
+                start_time: toTimeOnly(shift.start_time),
+                end_time: toTimeOnly(shift.end_time),
+              };
+            }
+            return { shift_id: st.shift_id, shift_date: '?', start_time: '?', end_time: '?' };
+          });
+        } catch (e) {
+          map[task.task_id] = [];
+        }
+      }
+      taskShiftMap.value = map;
+    };
+
+    // ─── Task List Items methods ───
+    const loadTaskListItems = async (taskId) => {
+      if (taskListItemsMap.value[taskId]) return; // already loaded
+      try {
+        const res = await TaskListItemServices.getAll({ task_id: taskId });
+        taskListItemsMap.value[taskId] = res.data || [];
+      } catch (e) {
+        console.error("Error loading task list items:", e);
+        taskListItemsMap.value[taskId] = [];
+      }
+    };
+
+    const fetchAllTaskListItems = async () => {
+      const map = {};
+      for (const task of areaTasks.value) {
+        try {
+          const res = await TaskListItemServices.getAll({ task_id: task.task_id });
+          map[task.task_id] = res.data || [];
+        } catch (e) {
+          map[task.task_id] = [];
+        }
+      }
+      taskListItemsMap.value = map;
+    };
+
+    const addTaskListItem = async (taskId) => {
+      const desc = (newItemDescription.value[taskId] || "").trim();
+      if (!desc) return;
+      try {
+        await TaskListItemServices.create({ task_id: taskId, description: desc });
+        newItemDescription.value[taskId] = "";
+        // Reload items for this task list
+        const res = await TaskListItemServices.getAll({ task_id: taskId });
+        taskListItemsMap.value = { ...taskListItemsMap.value, [taskId]: res.data || [] };
+      } catch (e) {
+        console.error("Error adding task list item:", e);
+      }
+    };
+
+    const deleteTaskListItem = async (taskId, itemId) => {
+      try {
+        await TaskListItemServices.delete(itemId);
+        const res = await TaskListItemServices.getAll({ task_id: taskId });
+        taskListItemsMap.value = { ...taskListItemsMap.value, [taskId]: res.data || [] };
+      } catch (e) {
+        console.error("Error deleting task list item:", e);
+      }
+    };
+
+    // ─── Shift task completion status ───
+    const fetchShiftItemStatuses = async (shiftId) => {
+      if (!shiftId) {
+        shiftItemStatuses.value = {};
+        return;
+      }
+      try {
+        const res = await TaskListItemStatusServices.getAll({ shift_id: shiftId });
+        const statuses = res.data || [];
+        const map = {};
+        for (const s of statuses) {
+          map[s.task_list_item_id] = s;
+        }
+        shiftItemStatuses.value = map;
+      } catch (e) {
+        shiftItemStatuses.value = {};
+      }
+    };
+
+    const isShiftItemCompleted = (itemId) => {
+      const status = shiftItemStatuses.value[itemId];
+      return status ? status.is_completed : false;
+    };
+
+    const getShiftTaskProgress = (taskId) => {
+      const items = taskListItemsMap.value[taskId] || [];
+      if (items.length === 0) return { completed: 0, total: 0 };
+      const completed = items.filter((i) => isShiftItemCompleted(i.task_list_item_id)).length;
+      return { completed, total: items.length };
+    };
+
+    const openAreaTasksDialog = async () => {
+      await fetchAreaTasks();
+      await fetchTaskShiftMap();
+      await fetchAllTaskListItems();
+      showTaskForm.value = false;
+      editingTaskId.value = null;
+      taskError.value = "";
+      showAreaTasksDialog.value = true;
+    };
+
+    const openNewTaskForm = () => {
+      editingTaskId.value = null;
+      taskForm.value = { task_name: "", description: "" };
+      taskError.value = "";
+      showTaskForm.value = true;
+    };
+
+    const editAreaTask = (task) => {
+      editingTaskId.value = task.task_id;
+      taskForm.value = { task_name: task.task_name, description: task.description || "" };
+      taskError.value = "";
+      showTaskForm.value = true;
+    };
+
+    const cancelTaskForm = () => {
+      showTaskForm.value = false;
+      editingTaskId.value = null;
+      taskError.value = "";
+    };
+
+    const saveTask = async () => {
+      if (!taskForm.value.task_name.trim()) {
+        taskError.value = "Task name is required.";
+        return;
+      }
+      savingTask.value = true;
+      taskError.value = "";
+      try {
+        const payload = {
+          area_id: area.value.area_id,
+          task_name: taskForm.value.task_name.trim(),
+          description: taskForm.value.description.trim(),
+        };
+        if (editingTaskId.value) {
+          await TaskServices.update(editingTaskId.value, payload);
+        } else {
+          await TaskServices.create(payload);
+        }
+        showTaskForm.value = false;
+        editingTaskId.value = null;
+        await fetchAreaTasks();
+      } catch (e) {
+        taskError.value = e?.response?.data?.message || "Failed to save task.";
+      } finally {
+        savingTask.value = false;
+      }
+    };
+
+    const deleteAreaTask = async (taskId) => {
+      try {
+        await TaskServices.delete(taskId);
+        await fetchAreaTasks();
+      } catch (e) {
+        console.error("Error deleting task:", e);
+      }
+    };
+
+    // ─── Shift-task assignment methods ───
+    const getTaskName = (taskId) => {
+      const t = areaTasks.value.find((t) => Number(t.task_id) === Number(taskId));
+      return t ? t.task_name : `Task ${taskId}`;
+    };
+
+    const getTaskDescription = (taskId) => {
+      const t = areaTasks.value.find((t) => Number(t.task_id) === Number(taskId));
+      return t?.description || 'No description';
+    };
+
+    const fetchShiftTasks = async (shiftId) => {
+      if (!shiftId) {
+        shiftAssignedTasks.value = [];
+        return;
+      }
+      try {
+        const res = await TaskServices.getShiftTasks({ shift_id: shiftId });
+        shiftAssignedTasks.value = res.data || [];
+      } catch (e) {
+        shiftAssignedTasks.value = [];
+      }
+    };
+
+    const onTaskSelected = async (taskId) => {
+      if (!taskId) return;
+      const shiftId = editingShiftId.value;
+
+      if (!shiftId) {
+        // Shift hasn't been saved yet — store locally
+        if (!shiftAssignedTasks.value.some((st) => Number(st.task_id) === Number(taskId))) {
+          shiftAssignedTasks.value.push({ task_id: taskId });
+        }
+        shiftSelectedTaskId.value = null;
+        return;
+      }
+
+      // Shift already exists — save to backend immediately
+      shiftError.value = "";
+      try {
+        await TaskServices.attachTaskToShift(shiftId, taskId);
+        shiftSelectedTaskId.value = null;
+        await fetchShiftTasks(shiftId);
+      } catch (e) {
+        console.error("Error assigning task to shift:", e);
+        shiftError.value = e?.response?.data?.message || "Failed to assign task.";
+      }
+    };
+
+    const assignTaskToShift = async () => {
+      if (!shiftSelectedTaskId.value) return;
+      await onTaskSelected(shiftSelectedTaskId.value);
+    };
+
+    const unassignTaskFromShift = async (st) => {
+      if (st.shift_task_id) {
+        try {
+          await TaskServices.removeTaskFromShift(st.shift_task_id);
+          await fetchShiftTasks(editingShiftId.value);
+        } catch (e) {
+          shiftError.value = e?.response?.data?.message || "Failed to remove task.";
+        }
+      } else {
+        shiftAssignedTasks.value = shiftAssignedTasks.value.filter((x) => Number(x.task_id) !== Number(st.task_id));
+      }
+    };
+
+    const openInlineTaskCreate = () => {
+      inlineTaskForm.value = { task_name: "", description: "" };
+      inlineTaskError.value = "";
+      showInlineTaskForm.value = true;
+    };
+
+    const saveInlineTask = async () => {
+      if (!inlineTaskForm.value.task_name.trim()) {
+        inlineTaskError.value = "Task name is required.";
+        return;
+      }
+      savingInlineTask.value = true;
+      inlineTaskError.value = "";
+      try {
+        const res = await TaskServices.create({
+          area_id: area.value.area_id,
+          task_name: inlineTaskForm.value.task_name.trim(),
+          description: inlineTaskForm.value.description.trim(),
+        });
+        showInlineTaskForm.value = false;
+        await fetchAreaTasks();
+        // Auto-select the newly created task
+        const newTask = res.data;
+        if (newTask?.task_id) {
+          shiftSelectedTaskId.value = newTask.task_id;
+        }
+      } catch (e) {
+        inlineTaskError.value = e?.response?.data?.message || "Failed to create task.";
+      } finally {
+        savingInlineTask.value = false;
       }
     };
 
@@ -990,6 +1520,13 @@ export default {
       }
     };
 
+    // Auto-assign task when user selects one from the dropdown
+    watch(shiftSelectedTaskId, (newVal) => {
+      if (newVal) {
+        onTaskSelected(newVal);
+      }
+    });
+
     watch(activeScheduleId, async (scheduleId) => {
       if (!scheduleId) {
         shifts.value = [];
@@ -1055,6 +1592,47 @@ export default {
       positionError,
       openPositionDialog,
       savePosition,
+      // Area task lists
+      showAreaTasksDialog,
+      areaTasks,
+      showTaskForm,
+      taskForm,
+      editingTaskId,
+      savingTask,
+      taskError,
+      openAreaTasksDialog,
+      openNewTaskForm,
+      editAreaTask,
+      cancelTaskForm,
+      saveTask,
+      deleteAreaTask,
+      // Task list items
+      taskListItemsMap,
+      newItemDescription,
+      loadTaskListItems,
+      addTaskListItem,
+      deleteTaskListItem,
+      // Shift task completion status
+      shiftItemStatuses,
+      isShiftItemCompleted,
+      getShiftTaskProgress,
+      // Shift-task list assignment
+      shiftAssignedTasks,
+      shiftSelectedTaskId,
+      shiftAvailableTasks,
+      assignTaskToShift,
+      onTaskSelected,
+      unassignTaskFromShift,
+      getTaskName,
+      showInlineTaskForm,
+      inlineTaskForm,
+      savingInlineTask,
+      inlineTaskError,
+      openInlineTaskCreate,
+      saveInlineTask,
+      showShiftTaskDetails,
+      getTaskDescription,
+      taskShiftMap,
     };
   },
 };
