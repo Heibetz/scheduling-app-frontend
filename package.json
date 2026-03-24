@@ -21,7 +21,7 @@
     "vue": "^3.2.47",
     "vue-cal": "^4.10.2",
     "vue-router": "^4.1.6",
-    "vuetify": "^3.0.1",
+    "vuetify": "^3.3.23",
     "vuex": "^4.0.2",
     "webfontloader": "^1.6.28"
   },
