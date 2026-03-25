@@ -13,7 +13,6 @@ import EditLesson from "./views/EditLesson.vue";
 import Profile from "./views/Profile.vue";
 import Areas from "./views/Areas.vue";
 import Users from "./views/Users.vue";
-import Schedule from "./views/ScheduleView.vue";
 import Availability from "./views/Availability.vue";
 
 const router = createRouter({
@@ -78,11 +77,6 @@ const router = createRouter({
       path: "/users",
       name: "users",
       component: Users,
-    },
-    {
-      path: "/schedule",
-      name: "schedule",
-      component: Schedule,
     },
     {
       path: "/availability",

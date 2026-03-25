@@ -144,17 +144,6 @@ watch(showNotifications, (val) => {
         
         <v-btn 
           v-if="!user.is_super_admin" 
-          :to="{ name: 'schedule' }"
-          class="nav-btn"
-          variant="text"
-          rounded="lg"
-        >
-          <v-icon class="nav-icon">mdi-calendar</v-icon>
-          Schedule
-        </v-btn>
-        
-        <v-btn 
-          v-if="!user.is_super_admin" 
           :to="{ name: 'availability' }"
           class="nav-btn"
           variant="text"

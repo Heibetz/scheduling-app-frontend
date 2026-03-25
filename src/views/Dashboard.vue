@@ -1,199 +1,818 @@
 <template>
-  <v-container fluid class="pa-4">
-    <!-- Welcome Section -->
-    <div class="mb-6">
-      <h1 class="text-h4 font-weight-bold mb-1">Welcome back, {{ userFullName }}</h1>
-      <p class="text-subtitle-1 text-grey-darken-1">{{ userRole }} - Your work schedule and hours</p>
-    </div>
+  <v-container fluid class="pa-6">
+    <!-- Modern Calendar -->
+    <v-card class="calendar-container mb-8" elevation="0">
+      <div class="calendar-header">
+        <h2>{{ areaName }} Schedule</h2>
+        <div class="view-toggle">
+          <button 
+            @click="calendarView = 'week'"
+            :class="['toggle-btn', { active: calendarView === 'week' }]"
+          >
+            Week
+          </button>
+          <button 
+            @click="calendarView = 'month'"
+            :class="['toggle-btn', { active: calendarView === 'month' }]"
+          >
+            Month
+          </button>
+        </div>
+      </div>
+      
+      <div class="calendar-body">
+        <vue-cal
+          v-if="!loading"
+          class="modern-calendar"
+          :events="calendarEvents"
+          :selected-date="today"
+          :active-view="calendarView"
+          :disable-views="['years', 'year', 'day']"
+          :editable-events="{ title: false, drag: false, resize: false, delete: false, create: false }"
+          :time-from="480" 
+          :time-to="1260"
+          :time-step="60"
+          :twelve-hour="true"
+          events-on-month-view="short"
+        />
+        <div v-else-if="!loading && !shifts.length" class="empty-calendar">
+          <v-icon size="48" color="grey-lighten-1">mdi-calendar-blank</v-icon>
+          <p class="mt-4 text-grey-darken-1">No shifts scheduled</p>
+        </div>
+        <div v-if="loading" class="loading-calendar">
+          <v-progress-circular indeterminate color="primary" size="40"/>
+          <p class="mt-4">Loading schedule...</p>
+          <p class="text-caption mt-2">{{ loadingMessage }}</p>
+          <v-btn
+            v-if="loadingMessage.includes('Error') || loadingMessage.includes('timeout')"
+            @click="retryLoadData"
+            color="primary"
+            size="small"
+            class="mt-4"
+          >
+            Retry
+          </v-btn>
+        </div>
+      </div>
+    </v-card>
 
-    <!-- Statistics Cards Row -->
-    <v-row class="mb-6">
-      <v-col cols="12" sm="6" md="3">
-        <v-card class="pa-4" elevation="2">
-          <div class="d-flex align-center mb-2">
-            <v-icon color="primary" class="mr-2">mdi-clock-outline</v-icon>
-            <span class="text-subtitle-2 font-weight-medium">This Week's Hours</span>
+    <!-- Stats Grid -->
+    <v-row class="mb-8">
+      <v-col v-for="stat in stats" :key="stat.label" cols="12" md="4">
+        <v-card class="stat-card" elevation="0">
+          <div class="stat-icon">
+            <v-icon :color="stat.color">{{ stat.icon }}</v-icon>
           </div>
-          <div class="text-h3 font-weight-bold">{{ thisWeekHours }}</div>
-          <div class="text-caption text-grey-darken-1">{{ thisWeekShifts }} shifts</div>
-        </v-card>
-      </v-col>
-      
-      <v-col cols="12" sm="6" md="3">
-        <v-card class="pa-4" elevation="2">
-          <div class="d-flex align-center mb-2">
-            <v-icon color="primary" class="mr-2">mdi-calendar-outline</v-icon>
-            <span class="text-subtitle-2 font-weight-medium">Next Week's Hours</span>
+          <div class="stat-content">
+            <h3>{{ stat.value }}</h3>
+            <p>{{ stat.label }}</p>
+            <span class="stat-detail">{{ stat.detail }}</span>
           </div>
-          <div class="text-h3 font-weight-bold">{{ nextWeekHours }}</div>
-          <div class="text-caption text-grey-darken-1">{{ nextWeekShifts }} shifts</div>
-        </v-card>
-      </v-col>
-      
-      <v-col cols="12" sm="6" md="3">
-        <v-card class="pa-4" elevation="2">
-          <div class="d-flex align-center mb-2">
-            <v-icon color="primary" class="mr-2">mdi-cash</v-icon>
-            <span class="text-subtitle-2 font-weight-medium">Total Hours This Month</span>
-          </div>
-          <div class="text-h3 font-weight-bold">{{ totalMonthHours }}</div>
-          <div class="text-caption text-grey-darken-1">{{ totalMonthShifts }} shifts</div>
         </v-card>
       </v-col>
     </v-row>
 
-    <!-- My Upcoming Shifts Section -->
-    <v-card elevation="2" class="pa-6">
-      <div class="mb-4">
-        <h2 class="text-h5 font-weight-bold mb-1">My Upcoming Shifts</h2>
-        <p class="text-subtitle-2 text-grey-darken-1">Your scheduled work shifts for the next two weeks</p>
-      </div>
-
-      <div class="shifts-list">
-        <div
-          v-for="shift in upcomingShifts"
-          :key="shift.id"
-          class="shift-item d-flex align-center pa-4 mb-3"
-        >
-          <!-- Date Section -->
-          <div class="shift-date mr-6" style="min-width: 200px;">
-            <div class="d-flex align-center mb-1">
-              <span class="text-subtitle-1 font-weight-bold">{{ shift.dayName }}, {{ shift.date }}</span>
-              <v-chip
-                :color="getStatusColor(shift.status)"
-                size="small"
-                class="ml-2"
-                dark
-              >
-                {{ shift.status }}
-              </v-chip>
-            </div>
-            <div class="text-body-2 text-grey-darken-1">{{ shift.timeRange }}</div>
+    <!-- Upcoming Shifts -->
+    <v-card class="shifts-container" elevation="0">
+      <h2 class="mb-6">Upcoming Shifts</h2>
+      <div v-if="upcomingShifts.length" class="shifts-grid">
+        <div v-for="shift in upcomingShifts" :key="shift.shift_id" class="shift-card">
+          <div class="shift-date">
+            <span class="day">{{ formatDay(shift.shift_date) }}</span>
+            <span class="date">{{ formatDate(shift.shift_date) }}</span>
           </div>
-
-          <!-- Position Section -->
-          <div class="shift-position flex-grow-1 mr-6">
-            <div class="text-subtitle-1 font-weight-medium">{{ shift.position }}</div>
-            <div class="text-body-2 text-grey-darken-1">{{ shift.location }}</div>
+          <div class="shift-info">
+            <h4>{{ shift.position_name }}</h4>
+            <p>{{ formatTimeRange(shift.start_time, shift.end_time) }}</p>
+            <span class="shift-area">{{ shift.area_name }}</span>
           </div>
-
-          <!-- Duration Section -->
-          <div class="shift-duration">
-            <div class="text-subtitle-1 font-weight-bold">{{ shift.duration }}</div>
+          <div class="shift-status">
+            <span :class="['status-badge', shift.status || 'confirmed']">
+              {{ (shift.status || 'confirmed').toUpperCase() }}
+            </span>
           </div>
         </div>
       </div>
-
-      <!-- Empty State -->
-      <div v-if="upcomingShifts.length === 0" class="text-center py-8">
-        <v-icon size="64" color="grey-lighten-2" class="mb-4">mdi-calendar-blank</v-icon>
-        <p class="text-h6 text-grey-darken-1">No upcoming shifts scheduled</p>
-        <p class="text-body-2 text-grey-darken-2">Check back later for your schedule updates</p>
+      <div v-else class="empty-shifts">
+        <v-icon size="48" color="grey-lighten-1">mdi-calendar-check</v-icon>
+        <p class="mt-4 text-grey-darken-1">No upcoming shifts</p>
       </div>
     </v-card>
   </v-container>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import VueCal from "vue-cal"
+import "vue-cal/dist/vuecal.css"
 import Utils from '../config/utils'
+import ShiftServices from '../services/shiftServices'
+import PositionServices from '../services/positionServices'
+import AreaServices from '../services/areaServices'
 
-// User data
-const user = ref(null)
-const userFullName = computed(() => 
-  user.value ? `${user.value.fName} ${user.value.lName}` : 'User'
-)
-const userRole = computed(() => 
-  user.value ? 'Student Success' : 'Loading...'
-)
+// State
+const user = ref(Utils.getStore('user'))
+const loading = ref(true)
+const loadingMessage = ref('Initializing...')
+const shifts = ref([])
+const calendarView = ref('week')
+const today = new Date()
 
-// Statistics data (mock data for now)
-const thisWeekHours = ref(12)
-const thisWeekShifts = ref(3)
-const nextWeekHours = ref(8)
-const nextWeekShifts = ref(2)
-const totalMonthHours = ref(32)
-const totalMonthShifts = ref(8)
-
-// Shifts data (mock data for now)
-const upcomingShifts = ref([
-  {
-    id: 1,
-    dayName: 'Monday',
-    date: '2026-01-27',
-    timeRange: '9:00 AM - 1:00 PM',
-    position: 'Front Desk',
-    location: 'Main Office',
-    duration: '4 hrs',
-    status: 'confirmed'
-  },
-  {
-    id: 2,
-    dayName: 'Wednesday',
-    date: '2026-01-29',
-    timeRange: '9:00 AM - 1:00 PM',
-    position: 'Front Desk',
-    location: 'Main Office',
-    duration: '4 hrs',
-    status: 'confirmed'
-  },
-  {
-    id: 3,
-    dayName: 'Thursday',
-    date: '2026-01-30',
-    timeRange: '9:00 AM - 1:00 PM',
-    position: 'Front Desk',
-    location: 'Main Office',
-    duration: '4 hrs',
-    status: 'confirmed'
-  },
-  {
-    id: 4,
-    dayName: 'Monday',
-    date: '2026-02-03',
-    timeRange: '9:00 AM - 1:00 PM',
-    position: 'Front Desk',
-    location: 'Main Office',
-    duration: '4 hrs',
-    status: 'pending'
+// Computed Properties
+const areaName = computed(() => {
+  if (shifts.value && shifts.value.length > 0) {
+    const firstShiftArea = shifts.value[0]?.area_name
+    if (firstShiftArea && firstShiftArea !== 'Unknown Area') {
+      return firstShiftArea
+    }
   }
-])
+  return 'My Area'
+})
 
-// Helper function to get status color
-const getStatusColor = (status) => {
-  switch (status.toLowerCase()) {
-    case 'confirmed':
-      return 'success'
-    case 'pending':
-      return 'warning'
-    case 'cancelled':
-      return 'error'
-    default:
-      return 'primary'
+const calendarEvents = computed(() => {
+  if (!shifts.value || shifts.value.length === 0) {
+    return []
+  }
+  
+  const events = shifts.value.map(shift => {
+    // Extract shift data
+    const shiftDate = shift.shift_date
+    const startTime = shift.start_time
+    const endTime = shift.end_time
+    
+    if (!shiftDate || !startTime || !endTime) {
+      return null
+    }
+    
+    // Normalize date format - handle both "YYYY-MM-DD" and ISO format
+    let dateOnly
+    if (shiftDate.includes('T')) {
+      // ISO format like "2026-03-25T00:00:00.000Z"
+      dateOnly = shiftDate.substring(0, 10) // Extract just "2026-03-25"
+    } else {
+      // Already in YYYY-MM-DD format
+      dateOnly = shiftDate
+    }
+    
+    // Normalize time format to ensure consistent parsing
+    const normalizeTime = (timeStr) => {
+      if (!timeStr) return null
+      // Handle different time formats (HH:MM, HH:MM:SS)
+      const timeParts = timeStr.split(':')
+      const hours = timeParts[0].padStart(2, '0')
+      const minutes = timeParts[1] ? timeParts[1].padStart(2, '0') : '00'
+      return `${hours}:${minutes}:00`
+    }
+    
+    const normalizedStartTime = normalizeTime(startTime)
+    const normalizedEndTime = normalizeTime(endTime)
+    
+    // Create proper Date objects with normalized date and time
+    const startDateTime = new Date(`${dateOnly}T${normalizedStartTime}`)
+    const endDateTime = new Date(`${dateOnly}T${normalizedEndTime}`)
+    
+    // Validate the created dates
+    if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+      return null
+    }
+    
+    const eventClass = shift.status === 'pending' ? 'shift-pending' : 'shift-confirmed'
+    
+    return {
+      start: startDateTime,
+      end: endDateTime,
+      title: shift.position_name || 'Shift',
+      content: shift.area_name || '',
+      class: eventClass,
+      shift_id: shift.shift_id,
+    }
+  }).filter(Boolean) // Remove any null entries
+  
+  return events
+})
+
+const stats = computed(() => {
+  const now = new Date()
+  const thisWeek = getWeekRange(now)
+  const nextWeek = getWeekRange(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000))
+  const thisMonth = getMonthRange(now)
+
+  const thisWeekShifts = filterShiftsByDateRange(shifts.value, thisWeek.start, thisWeek.end)
+  const nextWeekShifts = filterShiftsByDateRange(shifts.value, nextWeek.start, nextWeek.end)
+  const monthShifts = filterShiftsByDateRange(shifts.value, thisMonth.start, thisMonth.end)
+
+  return [
+    {
+      label: 'This Week',
+      value: `${calculateTotalHours(thisWeekShifts)}h`,
+      detail: `${thisWeekShifts.length} shifts`,
+      icon: 'mdi-clock',
+      color: 'blue'
+    },
+    {
+      label: 'Next Week', 
+      value: `${calculateTotalHours(nextWeekShifts)}h`,
+      detail: `${nextWeekShifts.length} shifts`,
+      icon: 'mdi-calendar',
+      color: 'green'
+    },
+    {
+      label: 'This Month',
+      value: `${calculateTotalHours(monthShifts)}h`, 
+      detail: `${monthShifts.length} shifts`,
+      icon: 'mdi-chart-line',
+      color: 'purple'
+    }
+  ]
+})
+
+const upcomingShifts = computed(() => {
+  if (!shifts.value || shifts.value.length === 0) {
+    return []
+  }
+  
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()) // Start of today
+  const twoWeeksFromNow = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000) // 14 days from today
+  
+  return shifts.value
+    .filter(shift => {
+      if (!shift.shift_date) {
+        return false
+      }
+      
+      // Handle both date formats
+      let shiftDate
+      if (shift.shift_date.includes('T')) {
+        // Already in ISO format
+        shiftDate = new Date(shift.shift_date)
+      } else {
+        // Plain date format, need to add time
+        shiftDate = new Date(shift.shift_date + 'T00:00:00')
+      }
+      
+      // Set to start of day for comparison
+      const shiftDateOnly = new Date(shiftDate.getFullYear(), shiftDate.getMonth(), shiftDate.getDate())
+      return shiftDateOnly >= today && shiftDateOnly <= twoWeeksFromNow
+    })
+    .sort((a, b) => new Date(a.shift_date) - new Date(b.shift_date))
+    .slice(0, 10) // Limit to 10 for performance
+})
+
+// Utility Functions
+function getWeekRange(date) {
+  const start = new Date(date)
+  start.setDate(date.getDate() - date.getDay())
+  const end = new Date(start)
+  end.setDate(start.getDate() + 6)
+  return { start, end }
+}
+
+function getMonthRange(date) {
+  return {
+    start: new Date(date.getFullYear(), date.getMonth(), 1),
+    end: new Date(date.getFullYear(), date.getMonth() + 1, 0)
   }
 }
 
-onMounted(() => {
-  // Load user data from store
-  user.value = Utils.getStore('user')
+function filterShiftsByDateRange(shifts, start, end) {
+  return shifts.filter(shift => {
+    if (!shift.shift_date) return false
+    
+    // Handle both ISO format and plain date format
+    let shiftDate
+    if (shift.shift_date.includes('T')) {
+      // Already in ISO format
+      shiftDate = new Date(shift.shift_date)
+    } else {
+      // Plain date format
+      shiftDate = new Date(shift.shift_date + 'T00:00:00')
+    }
+    
+    // Compare just the date part (not time)
+    const shiftDateOnly = new Date(shiftDate.getFullYear(), shiftDate.getMonth(), shiftDate.getDate())
+    const startDateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+    const endDateOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate())
+    
+    return shiftDateOnly >= startDateOnly && shiftDateOnly <= endDateOnly
+  })
+}
+
+function calculateTotalHours(shifts) {
+  return shifts.reduce((total, shift) => {
+    if (!shift.start_time || !shift.end_time) return total
+    
+    // Handle both HH:MM and HH:MM:SS formats
+    const normalizeTime = (timeStr) => {
+      const parts = timeStr.split(':')
+      return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : timeStr
+    }
+    
+    const startTime = normalizeTime(shift.start_time)
+    const endTime = normalizeTime(shift.end_time)
+    
+    const start = new Date(`1970-01-01T${startTime}:00`)
+    const end = new Date(`1970-01-01T${endTime}:00`)
+    
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return total
+    
+    const hours = (end - start) / (1000 * 60 * 60)
+    return total + Math.max(0, hours)
+  }, 0).toFixed(1)
+}
+
+function formatTimeRange(startTime, endTime) {
+  if (!startTime || !endTime) return '--'
+  
+  const format = time => {
+    // Handle both HH:MM and HH:MM:SS formats
+    const timeParts = time.split(':')
+    const hour = parseInt(timeParts[0])
+    const minute = timeParts[1] || '00'
+    
+    const period = hour >= 12 ? 'PM' : 'AM'
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
+    
+    return `${displayHour}:${minute} ${period}`
+  }
+  
+  return `${format(startTime)} - ${format(endTime)}`
+}
+
+function formatDay(dateString) {
+  return new Date(dateString).toLocaleDateString('en-US', { weekday: 'short' })
+}
+
+function formatDate(dateString) {
+  return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// Data Loading
+async function loadUserShifts() {
+  try {
+    loading.value = true
+    loadingMessage.value = 'Loading your shifts...'
+    
+    const currentUser = user.value || Utils.getStore('user')
+    
+    if (!currentUser) {
+      loadingMessage.value = 'Please log in to view schedule'
+      loading.value = false
+      return
+    }
+
+    const userId = currentUser.userId || currentUser.user_id || currentUser.id
+    
+    if (!userId) {
+      loadingMessage.value = 'Invalid user session - Please log in again'
+      loading.value = false
+      return
+    }
+
+    loadingMessage.value = 'Loading shifts...'
+    
+    // Load shifts using service
+    const shiftResponse = await ShiftServices.getByUser(userId)
+    let userShifts = shiftResponse.data || shiftResponse || []
+    
+    if (userShifts.length === 0) {
+      shifts.value = []
+      loading.value = false
+      loadingMessage.value = 'No shifts scheduled'
+      return
+    }
+    
+    loadingMessage.value = 'Loading position and area details...'
+    
+    // Load additional data for position and area names
+    const [positionResponse, areaResponse] = await Promise.all([
+      PositionServices.getAll().catch(err => {
+        console.error('Position service error:', err)
+        return { data: [] }
+      }),
+      AreaServices.getAll().catch(err => {
+        console.error('Area service error:', err)
+        return { data: [] }
+      })
+    ])
+    
+    const positions = positionResponse.data || positionResponse || []
+    const areas = areaResponse.data || areaResponse || []
+    
+    // Enhance shifts with position and area names
+    const enhancedShifts = userShifts.map(shift => {
+      const position = positions.find(p => Number(p.position_id) === Number(shift.position_id))
+      const area = position ? areas.find(a => Number(a.area_id) === Number(position.area_id)) : null
+      
+      return {
+        ...shift,
+        position_name: position?.position_name || 'Unknown Position',
+        area_name: area?.area_name || 'Unknown Area'
+      }
+    })
+    
+    shifts.value = enhancedShifts
+    
+  } catch (error) {
+    console.error('Error loading user shifts:', error)
+    console.error('Error stack:', error.stack)
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      response: error.response
+    })
+    
+    let errorMessage = 'Failed to load data'
+    if (error.message.includes('Network Error') || error.code === 'NETWORK_ERROR') {
+      errorMessage = 'Cannot connect to server - please check if backend is running'
+    } else if (error.response?.status === 401) {
+      errorMessage = 'Authentication failed - please log in again'
+    } else if (error.response?.status === 404) {
+      errorMessage = 'API endpoint not found - please check backend configuration'
+    } else if (error.response?.status >= 500) {
+      errorMessage = 'Server error - please try again later'
+    } else {
+      errorMessage = error.message || 'Failed to load data'
+    }
+    
+    loadingMessage.value = `Error: ${errorMessage}`
+    shifts.value = []
+  } finally {
+    setTimeout(() => {
+      loading.value = false
+    }, 500) // Small delay to show final message
+  }
+}
+
+onMounted(async () => {
+  const currentUser = Utils.getStore('user')
+  
+  if (currentUser) {
+    user.value = currentUser
+    
+    // Set a timeout to prevent infinite loading
+    const loadingTimeout = setTimeout(() => {
+      if (loading.value) {
+        loading.value = false
+        loadingMessage.value = 'Loading timeout - please refresh the page'
+      }
+    }, 30000) // 30 second timeout
+    
+    try {
+      await loadUserShifts()
+      clearTimeout(loadingTimeout)
+    } catch (error) {
+      clearTimeout(loadingTimeout)
+      console.error('Error loading dashboard:', error)
+    }
+  } else {
+    loadingMessage.value = 'Please log in to view your schedule'
+    loading.value = false
+  }
 })
+
+// Add retry function
+function retryLoadData() {
+  loadUserShifts()
+}
 </script>
 
 <style scoped>
-.shift-item {
-  border: 1px solid #e0e0e0;
+/* Clean Modern Layout */
+.area-title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #1a202c;
+  margin-bottom: 0;
+}
+
+/* Calendar Container */
+.calendar-container {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.1);
+}
+
+.calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.calendar-header h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #b91c1c;
+  margin: 0;
+}
+
+.view-toggle {
+  display: flex;
+  background: white;
   border-radius: 8px;
-  background-color: #fafafa;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.1);
+}
+
+.toggle-btn {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: #b91c1c;
+  font-weight: 500;
+  cursor: pointer;
   transition: all 0.2s ease;
 }
 
-.shift-item:hover {
-  background-color: #f5f5f5;
-  border-color: #d0d0d0;
+.toggle-btn:hover {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
-.shifts-list {
-  max-height: 600px;
-  overflow-y: auto;
+.toggle-btn.active {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  color: white;
+}
+
+.calendar-body {
+  padding: 0;
+}
+
+/* Modern Calendar Styling */
+.modern-calendar {
+  border: none;
+  font-family: inherit;
+}
+
+:deep(.vuecal__header) {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  color: white;
+  padding: 16px 24px;
+  border: none;
+}
+
+:deep(.vuecal__title) {
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+:deep(.vuecal__arrow) {
+  color: white;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+:deep(.vuecal__arrow:hover) {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+:deep(.vuecal__weekdays) {
+  background: #fef2f2;
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+:deep(.vuecal__weekday-label) {
+  color: #b91c1c;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+:deep(.vuecal__cell) {
+  border-color: #e2e8f0;
+  background: white;
+}
+
+:deep(.vuecal__cell:nth-child(even)) {
+  background: #fefefe;
+}
+
+
+:deep(.vuecal__time-column) {
+  background: #fef2f2;
+  border-right: 1px solid #e2e8f0;
+}
+
+:deep(.vuecal__time-cell) {
+  color: #b91c1c;
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+:deep(.vuecal__event.shift-confirmed) {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  border-left: 3px solid #991b1b;
+}
+
+:deep(.vuecal__event.shift-pending) {
+  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  border-left: 3px solid #dc2626;
+}
+
+:deep(.vuecal__event.shift-confirmed:hover) {
+  background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+  transform: translateY(-1px);
+}
+
+:deep(.vuecal__event.shift-pending:hover) {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  transform: translateY(-1px);
+}
+
+/* Empty and Loading States */
+.empty-calendar,
+.loading-calendar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #64748b;
+}
+
+/* Stats Cards */
+.stat-card {
+  display: flex;
+  align-items: center;
+  padding: 24px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  transition: box-shadow 0.2s;
+}
+
+.stat-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.stat-icon {
+  margin-right: 16px;
+}
+
+.stat-content h3 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1a202c;
+  margin: 0;
+}
+
+.stat-content p {
+  font-weight: 600;
+  color: #64748b;
+  margin: 4px 0;
+}
+
+.stat-detail {
+  font-size: 0.875rem;
+  color: #94a3b8;
+}
+
+/* Shifts Container */
+.shifts-container {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.shifts-container h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1a202c;
+  margin: 0 0 24px 0;
+}
+
+.shifts-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.shift-card {
+  display: flex;
+  align-items: center;
+  padding: 20px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.shift-card:hover {
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.shift-date {
+  min-width: 80px;
+  margin-right: 20px;
+}
+
+.shift-date .day {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.shift-date .date {
+  display: block;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1a202c;
+}
+
+.shift-info {
+  flex: 1;
+}
+
+.shift-info h4 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1a202c;
+  margin: 0 0 4px 0;
+}
+
+.shift-info p {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin: 0 0 4px 0;
+}
+
+.shift-area {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.shift-status {
+  margin-left: 20px;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.status-badge.confirmed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-badge.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.empty-shifts {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+  color: #64748b;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .calendar-header {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .shift-card {
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .shift-date {
+    margin-right: 0;
+    margin-bottom: 12px;
+  }
+
+  .shift-status {
+    margin-left: 0;
+    margin-top: 12px;
+  }
 }
 </style>
