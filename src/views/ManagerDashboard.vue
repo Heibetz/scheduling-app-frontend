@@ -66,12 +66,6 @@
                 style="max-width: 360px"
               />
 
-              <v-btn-toggle :model-value="calendarView" @update:model-value="calendarView = $event" mandatory color="primary" variant="outlined" density="comfortable">
-                <v-btn value="week">Weekly</v-btn>
-                <v-btn value="biweek">Bi-Weekly</v-btn>
-                <v-btn value="month">Monthly</v-btn>
-              </v-btn-toggle>
-
               <v-text-field
                 v-model.number="defaultShiftHours"
                 label="Default Shift (hrs)"
@@ -84,79 +78,12 @@
               />
             </div>
 
-            <div v-if="calendarView === 'biweek'" class="d-flex flex-column ga-4">
-              <div>
-                <p class="text-subtitle-2 mb-2">Week 1</p>
-                <vue-cal
-                  class="manager-calendar"
-                  :events="calendarEvents"
-                  :selected-date="calendarSelectedDate"
-                  active-view="week"
-                  :disable-views="['years', 'year', 'day']"
-                  :drag-to-create-event="internalVuecalView !== 'month'"
-                  :editable-events="internalVuecalView === 'month' ? calendarMonthEditConfig : calendarEditConfig"
-                  :on-event-create="handleEventCreate"
-                  :on-event-click="handleEventClick"
-                  @event-drag-create="handleEventDragCreate"
-                  @cell-click="handleCellClick"
-                  @view-change="handleInternalViewChange"
-                  :time-from="360"
-                  :time-to="1380"
-                  :time-step="30"
-                  :snap-to-time="30"
-                  events-on-month-view="short"
-                />
-              </div>
-
-              <div>
-                <p class="text-subtitle-2 mb-2">Week 2</p>
-                <vue-cal
-                  class="manager-calendar"
-                  :events="calendarEvents"
-                  :selected-date="biWeekSecondDate"
-                  active-view="week"
-                  :disable-views="['years', 'year', 'day']"
-                  :drag-to-create-event="internalVuecalView !== 'month'"
-                  :editable-events="internalVuecalView === 'month' ? calendarMonthEditConfig : calendarEditConfig"
-                  :on-event-create="handleEventCreate"
-                  :on-event-click="handleEventClick"
-                  @event-drag-create="handleEventDragCreate"
-                  @cell-click="handleCellClick"
-                  @view-change="handleInternalViewChange"
-                  :time-from="360"
-                  :time-to="1380"
-                  :time-step="30"
-                  :snap-to-time="30"
-                  events-on-month-view="short"
-                />
-              </div>
-            </div>
-
-            <div
-              v-else-if="calendarView === 'month'"
-            >
-              <vue-cal
-                class="manager-calendar month-only"
-                :events="calendarEvents"
-                :selected-date="calendarSelectedDate"
-                active-view="month"
-                :disable-views="['years', 'year', 'day', 'week']"
-                :editable-events="calendarMonthEditConfig"
-                :drag-to-create-event="false"
-                :click-to-navigate="false"
-                :dblclick-to-navigate="false"
-                :on-event-click="handleEventClick"
-                @cell-click="handleMonthCellClick"
-                events-on-month-view="short"
-              />
-            </div>
-
             <vue-cal
-              v-else
               class="manager-calendar"
               :events="calendarEvents"
               :selected-date="calendarSelectedDate"
               active-view="week"
+              :twelve-hour="true"
               :disable-views="['years', 'year', 'day']"
               :drag-to-create-event="internalVuecalView !== 'month'"
               :editable-events="internalVuecalView === 'month' ? calendarMonthEditConfig : calendarEditConfig"
@@ -181,6 +108,7 @@
                   :events="[]"
                   :selected-date="new Date()"
                   active-view="week"
+                  :twelve-hour="true"
                   :disable-views="['years', 'year', 'day']"
                   :time-from="360"
                   :time-to="1380"
