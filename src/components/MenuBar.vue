@@ -22,6 +22,8 @@ const fetchNotifications = () => {
           id: n.notification_id,
           message: n.message,
           read: n.is_read,
+          type: n.type || '',
+          created_at: n.created_at || null,
         }));
       })
       .catch(() => {
@@ -34,6 +36,34 @@ const markAllAsRead = () => {
   const unread = notifications.value.filter(n => !n.read);
   Promise.all(unread.map(n => NotificationServices.markAsRead(n.id)))
     .then(() => fetchNotifications());
+};
+
+const clearReadNotifications = () => {
+  if (!user.value) return;
+  NotificationServices.clearRead(user.value.userId)
+    .then(() => fetchNotifications());
+};
+
+const formatNotifTime = (dateStr) => {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+};
+
+const notifIcon = (type) => {
+  switch (type) {
+    case 'shift_confirmed': return { icon: 'mdi-check-circle', color: '#28a745' };
+    case 'shift_cancelled': return { icon: 'mdi-close-circle', color: '#dc3545' };
+    case 'shift_changed': return { icon: 'mdi-pencil-circle', color: '#ffc107' };
+    case 'shift_unassigned': return { icon: 'mdi-account-minus', color: '#6c757d' };
+    default: return { icon: 'mdi-calendar-clock', color: '#007bff' };
+  }
 };
 
 const router = useRouter()
@@ -195,7 +225,8 @@ watch(showNotifications, (val) => {
           :close-on-content-click="false"
           offset-y
           location="bottom end"
-          min-width="320px"
+          min-width="400px"
+          max-width="420px"
         >
           <template v-slot:activator="{ props }">
             <v-btn 
@@ -230,6 +261,15 @@ watch(showNotifications, (val) => {
               >
                 Mark all as read
               </v-btn>
+              <v-btn 
+                size="small"
+                variant="text"
+                color="#d32f2f"
+                @click="clearReadNotifications"
+                class="mark-read-btn"
+              >
+                Clear read
+              </v-btn>
             </v-card-title>
             
             <v-divider></v-divider>
@@ -241,11 +281,21 @@ watch(showNotifications, (val) => {
                 :class="{'unread-notification': !notif.read}"
                 class="notification-item"
               >
-                <v-list-item-content>
-                  <v-list-item-title class="notification-text">
-                    {{ notif.message }}
-                  </v-list-item-title>
-                </v-list-item-content>
+                <template v-slot:prepend>
+                  <v-icon 
+                    :color="notifIcon(notif.type).color" 
+                    size="22" 
+                    class="notif-icon"
+                  >
+                    {{ notifIcon(notif.type).icon }}
+                  </v-icon>
+                </template>
+                <div class="notification-content">
+                  <div class="notification-text">{{ notif.message }}</div>
+                  <div class="notification-time" v-if="notif.created_at">
+                    {{ formatNotifTime(notif.created_at) }}
+                  </div>
+                </div>
               </v-list-item>
               
               <v-list-item v-if="notifications.length === 0" class="empty-notifications">
@@ -391,7 +441,8 @@ watch(showNotifications, (val) => {
 }
 
 .notification-card {
-  max-width: 320px;
+  min-width: 400px;
+  max-width: 420px;
   border: 1px solid #e9ecef;
 }
 
@@ -417,7 +468,7 @@ watch(showNotifications, (val) => {
 }
 
 .notification-list {
-  max-height: 280px;
+  max-height: 500px;
   overflow-y: auto;
   padding: 0;
 }
@@ -432,13 +483,32 @@ watch(showNotifications, (val) => {
 }
 
 .unread-notification {
-  background-color: #f8f9fa !important;
+  background-color: #f0f7ff !important;
+  border-left: 3px solid #007bff;
+}
+
+.notif-icon {
+  margin-right: 0.75rem;
+  flex-shrink: 0;
+}
+
+.notification-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .notification-text {
   font-size: 0.875rem;
-  line-height: 1.4;
+  line-height: 1.5;
   color: #495057;
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+.notification-time {
+  font-size: 0.75rem;
+  color: #adb5bd;
+  margin-top: 0.25rem;
 }
 
 .empty-notifications {
