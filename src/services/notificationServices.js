@@ -9,4 +9,8 @@ export default {
   markAsRead(notificationId) {
     return apiClient.put(`notifications/${notificationId}/read`);
   },
+  // Delete all read notifications for a user
+  clearRead(userId) {
+    return apiClient.delete(`notifications/user/${userId}/read`);
+  },
 };

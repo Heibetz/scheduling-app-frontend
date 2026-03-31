@@ -90,6 +90,18 @@
             <span :class="['status-badge', shift.status || 'confirmed']">
               {{ (shift.status || 'confirmed').toUpperCase() }}
             </span>
+            <v-btn
+              v-if="shift.status === 'pending'"
+              size="small"
+              color="success"
+              variant="tonal"
+              class="mt-2"
+              :loading="confirmingShiftId === shift.shift_id"
+              @click="confirmShift(shift)"
+            >
+              <v-icon start size="16">mdi-check</v-icon>
+              Confirm
+            </v-btn>
           </div>
         </div>
       </div>
@@ -116,6 +128,22 @@ const loading = ref(true)
 const loadingMessage = ref('Initializing...')
 const shifts = ref([])
 const calendarView = ref('week')
+const confirmingShiftId = ref(null)
+
+const confirmShift = async (shift) => {
+  confirmingShiftId.value = shift.shift_id
+  try {
+    await ShiftServices.update(shift.shift_id, {
+      status: 'confirmed',
+      confirmed_at: new Date().toISOString(),
+    })
+    shift.status = 'confirmed'
+  } catch (err) {
+    console.error('Error confirming shift:', err)
+  } finally {
+    confirmingShiftId.value = null
+  }
+}
 const today = new Date()
 
 // Computed Properties
