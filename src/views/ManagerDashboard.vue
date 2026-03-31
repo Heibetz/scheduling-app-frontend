@@ -611,6 +611,10 @@
         <v-card-actions class="pa-4">
           <v-spacer />
           <v-btn variant="text" @click="showAreaTasksDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-dialog v-model="showAddWorkerDialog" max-width="520px">
       <v-card>
         <v-card-title class="pa-4">
