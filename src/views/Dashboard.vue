@@ -72,44 +72,7 @@
       </v-col>
     </v-row>
 
-    <!-- Upcoming Shifts -->
-    <v-card class="shifts-container" elevation="0">
-      <h2 class="mb-6">Upcoming Shifts</h2>
-      <div v-if="upcomingShifts.length" class="shifts-grid">
-        <div v-for="shift in upcomingShifts" :key="shift.shift_id" class="shift-card">
-          <div class="shift-date">
-            <span class="day">{{ formatDay(shift.shift_date) }}</span>
-            <span class="date">{{ formatDate(shift.shift_date) }}</span>
-          </div>
-          <div class="shift-info">
-            <h4>{{ shift.position_name }}</h4>
-            <p>{{ formatTimeRange(shift.start_time, shift.end_time) }}</p>
-            <span class="shift-area">{{ shift.area_name }}</span>
-          </div>
-          <div class="shift-status">
-            <span :class="['status-badge', shift.status || 'confirmed']">
-              {{ (shift.status || 'confirmed').toUpperCase() }}
-            </span>
-            <v-btn
-              v-if="shift.status === 'pending'"
-              size="small"
-              color="success"
-              variant="tonal"
-              class="mt-2"
-              :loading="confirmingShiftId === shift.shift_id"
-              @click="confirmShift(shift)"
-            >
-              <v-icon start size="16">mdi-check</v-icon>
-              Confirm
-            </v-btn>
-          </div>
-        </div>
-      </div>
-      <div v-else class="empty-shifts">
-        <v-icon size="48" color="grey-lighten-1">mdi-calendar-check</v-icon>
-        <p class="mt-4 text-grey-darken-1">No upcoming shifts</p>
-      </div>
-    </v-card>
+    <OpenShifts ref="openShiftsRef" />
   </v-container>
 </template>
 
@@ -121,6 +84,7 @@ import Utils from '../config/utils'
 import ShiftServices from '../services/shiftServices'
 import PositionServices from '../services/positionServices'
 import AreaServices from '../services/areaServices'
+import OpenShifts from '../components/OpenShifts.vue'
 
 // State
 const user = ref(Utils.getStore('user'))
@@ -128,22 +92,8 @@ const loading = ref(true)
 const loadingMessage = ref('Initializing...')
 const shifts = ref([])
 const calendarView = ref('week')
-const confirmingShiftId = ref(null)
+const openShiftsRef = ref(null)
 
-const confirmShift = async (shift) => {
-  confirmingShiftId.value = shift.shift_id
-  try {
-    await ShiftServices.update(shift.shift_id, {
-      status: 'confirmed',
-      confirmed_at: new Date().toISOString(),
-    })
-    shift.status = 'confirmed'
-  } catch (err) {
-    console.error('Error confirming shift:', err)
-  } finally {
-    confirmingShiftId.value = null
-  }
-}
 const today = new Date()
 
 // Computed Properties
@@ -252,39 +202,6 @@ const stats = computed(() => {
       color: 'purple'
     }
   ]
-})
-
-const upcomingShifts = computed(() => {
-  if (!shifts.value || shifts.value.length === 0) {
-    return []
-  }
-  
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()) // Start of today
-  const twoWeeksFromNow = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000) // 14 days from today
-  
-  return shifts.value
-    .filter(shift => {
-      if (!shift.shift_date) {
-        return false
-      }
-      
-      // Handle both date formats
-      let shiftDate
-      if (shift.shift_date.includes('T')) {
-        // Already in ISO format
-        shiftDate = new Date(shift.shift_date)
-      } else {
-        // Plain date format, need to add time
-        shiftDate = new Date(shift.shift_date + 'T00:00:00')
-      }
-      
-      // Set to start of day for comparison
-      const shiftDateOnly = new Date(shiftDate.getFullYear(), shiftDate.getMonth(), shiftDate.getDate())
-      return shiftDateOnly >= today && shiftDateOnly <= twoWeeksFromNow
-    })
-    .sort((a, b) => new Date(a.shift_date) - new Date(b.shift_date))
-    .slice(0, 10) // Limit to 10 for performance
 })
 
 // Utility Functions
@@ -502,6 +419,7 @@ onMounted(async () => {
 // Add retry function
 function retryLoadData() {
   loadUserShifts()
+  openShiftsRef.value?.loadOpenShifts?.()
 }
 </script>
 
@@ -713,134 +631,11 @@ function retryLoadData() {
   color: #94a3b8;
 }
 
-/* Shifts Container */
-.shifts-container {
-  background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 24px;
-}
-
-.shifts-container h2 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #1a202c;
-  margin: 0 0 24px 0;
-}
-
-.shifts-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.shift-card {
-  display: flex;
-  align-items: center;
-  padding: 20px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  transition: all 0.2s;
-}
-
-.shift-card:hover {
-  border-color: #cbd5e1;
-  transform: translateY(-1px);
-}
-
-.shift-date {
-  min-width: 80px;
-  margin-right: 20px;
-}
-
-.shift-date .day {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #64748b;
-  text-transform: uppercase;
-}
-
-.shift-date .date {
-  display: block;
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: #1a202c;
-}
-
-.shift-info {
-  flex: 1;
-}
-
-.shift-info h4 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: #1a202c;
-  margin: 0 0 4px 0;
-}
-
-.shift-info p {
-  font-size: 0.875rem;
-  color: #64748b;
-  margin: 0 0 4px 0;
-}
-
-.shift-area {
-  font-size: 0.75rem;
-  color: #94a3b8;
-}
-
-.shift-status {
-  margin-left: 20px;
-}
-
-.status-badge {
-  padding: 4px 12px;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.status-badge.confirmed {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.status-badge.pending {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.empty-shifts {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 40px 20px;
-  color: #64748b;
-}
-
 /* Responsive Design */
 @media (max-width: 768px) {
   .calendar-header {
     flex-direction: column;
     gap: 16px;
-  }
-
-  .shift-card {
-    flex-direction: column;
-    align-items: flex-start;
-    text-align: left;
-  }
-
-  .shift-date {
-    margin-right: 0;
-    margin-bottom: 12px;
-  }
-
-  .shift-status {
-    margin-left: 0;
-    margin-top: 12px;
   }
 }
 </style>

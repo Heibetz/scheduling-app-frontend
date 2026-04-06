@@ -9,6 +9,10 @@ export default {
     getByUser(userId) {
         return apiClient.get(`shifts/user/${userId}`);    
     },
+    /** @param {number|string} userId */
+    getOpenForUser(userId) {
+        return apiClient.get(`shifts/open/${userId}`);
+    },
     create(data) {
         return apiClient.post("shifts", data);
     },
