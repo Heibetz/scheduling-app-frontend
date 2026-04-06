@@ -212,8 +212,8 @@ const closeManager = () => {
 
 onMounted(() => {
   currentUser.value = Utils.getStore("user");
-  if (!currentUser.value || !currentUser.value.is_super_admin) {
-    router.push({ name: "dashboard" });
+  if (!currentUser.value) {
+    router.push({ name: "login" });
     return;
   }
   fetchAll();
