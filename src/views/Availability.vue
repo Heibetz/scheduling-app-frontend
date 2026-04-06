@@ -8,49 +8,49 @@ const router = useRouter();
 const currentUser = ref(null);
 const loading = ref(false);
 
-// Form data for each day - updated structure to support multiple time ranges
+// Form data for each day - updated structure to support multiple unavailable time ranges
 const availabilityForm = ref([
   { 
     day: 1, 
     dayName: 'Monday', 
-    isUnavailable: true, 
-    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+    isUnavailable: false,  // false = fully available, true = has unavailable time ranges
+    timeRanges: [] // Empty means no unavailable times (fully available)
   },
   { 
     day: 2, 
     dayName: 'Tuesday', 
-    isUnavailable: true, 
-    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+    isUnavailable: false, 
+    timeRanges: [] 
   },
   { 
     day: 3, 
     dayName: 'Wednesday', 
-    isUnavailable: true, 
-    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+    isUnavailable: false, 
+    timeRanges: [] 
   },
   { 
     day: 4, 
     dayName: 'Thursday', 
-    isUnavailable: true, 
-    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+    isUnavailable: false, 
+    timeRanges: [] 
   },
   { 
     day: 5, 
     dayName: 'Friday', 
-    isUnavailable: true, 
-    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+    isUnavailable: false, 
+    timeRanges: [] 
   },
   { 
     day: 6, 
     dayName: 'Saturday', 
-    isUnavailable: true, 
-    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+    isUnavailable: false, 
+    timeRanges: [] 
   },
   { 
     day: 0, 
     dayName: 'Sunday', 
-    isUnavailable: true, 
-    timeRanges: [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }] 
+    isUnavailable: false, 
+    timeRanges: [] 
   },
 ]);
 
@@ -70,11 +70,13 @@ const toggleTimeInputs = (dayIndex) => {
 
 // Get status text for a day
 const getDayStatus = (dayForm) => {
-  if (dayForm.isUnavailable) return 'Unavailable';
-  if (dayForm.timeRanges.length === 1) {
-    return `${dayForm.timeRanges[0].startTime} - ${dayForm.timeRanges[0].endTime}`;
+  if (!dayForm.isUnavailable || dayForm.timeRanges.length === 0) {
+    return 'Fully Available';
   }
-  return `${dayForm.timeRanges.length} time slots`;
+  if (dayForm.timeRanges.length === 1) {
+    return `Unavailable: ${dayForm.timeRanges[0].startTime} - ${dayForm.timeRanges[0].endTime}`;
+  }
+  return `${dayForm.timeRanges.length} unavailable periods`;
 };
 
 // Check if user has access
@@ -82,11 +84,11 @@ const hasAccess = computed(() => {
   return currentUser.value && !currentUser.value.is_super_admin;
 });
 
-// Calculate total available hours for weekly summary
-const totalAvailableHours = computed(() => {
+// Calculate total unavailable hours for weekly summary
+const totalUnavailableHours = computed(() => {
   let totalHours = 0;
   availabilityForm.value.forEach(dayForm => {
-    if (!dayForm.isUnavailable) {
+    if (dayForm.isUnavailable && dayForm.timeRanges.length > 0) {
       dayForm.timeRanges.forEach(range => {
         const startTime24 = convertTo24Hour(range.startTime);
         const endTime24 = convertTo24Hour(range.endTime);
@@ -138,7 +140,7 @@ const convertTo24Hour = (time12) => {
   return `${hours24.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 };
 
-// Load availability data from backend
+// Load availability data from backend and convert to unavailability format
 const loadAvailabilityData = async () => {
   if (!currentUser.value?.userId) return;
   
@@ -150,10 +152,10 @@ const loadAvailabilityData = async () => {
     
     console.log('Backend data:', backendData);
     
-    // Reset all days to unavailable first
+    // Reset all days to fully available first
     availabilityForm.value.forEach(dayForm => {
-      dayForm.isUnavailable = true;
-      dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }];
+      dayForm.isUnavailable = false;
+      dayForm.timeRanges = [];
     });
     
     // Group backend data by day of week
@@ -171,25 +173,58 @@ const loadAvailabilityData = async () => {
       }
     });
     
-    // Update form with backend data - support multiple time ranges per day
+    // Convert available periods to unavailable periods (find gaps)
     Object.keys(dataByDay).forEach(dayOfWeek => {
       const dayForm = availabilityForm.value.find(d => d.day === parseInt(dayOfWeek));
       if (dayForm && dataByDay[dayOfWeek].length > 0) {
-        dayForm.isUnavailable = false;
-        // Convert 24-hour times from backend to 12-hour format for display
-        dayForm.timeRanges = dataByDay[dayOfWeek].map(range => ({
-          startTime: convertTo12Hour(range.startTime),
-          endTime: convertTo12Hour(range.endTime),
-          availabilityId: range.availabilityId
-        }));
+        const availablePeriods = dataByDay[dayOfWeek].sort((a, b) => a.startTime.localeCompare(b.startTime));
+        
+        // Check if it's a full day availability (00:00 to 23:59)
+        if (availablePeriods.length === 1 && 
+            availablePeriods[0].startTime === '00:00' && 
+            availablePeriods[0].endTime === '23:59') {
+          // Full day available - no unavailable periods
+          dayForm.isUnavailable = false;
+          dayForm.timeRanges = [];
+        } else {
+          // Partial availability - calculate unavailable periods (gaps)
+          const unavailablePeriods = [];
+          let currentTime = '00:00';
+          
+          for (const availablePeriod of availablePeriods) {
+            // Gap before this available period
+            if (currentTime < availablePeriod.startTime) {
+              unavailablePeriods.push({
+                startTime: convertTo12Hour(currentTime),
+                endTime: convertTo12Hour(availablePeriod.startTime),
+                availabilityId: null
+              });
+            }
+            currentTime = availablePeriod.endTime;
+          }
+          
+          // Gap after last available period
+          if (currentTime < '23:59') {
+            unavailablePeriods.push({
+              startTime: convertTo12Hour(currentTime),
+              endTime: convertTo12Hour('23:59'),
+              availabilityId: null
+            });
+          }
+          
+          if (unavailablePeriods.length > 0) {
+            dayForm.isUnavailable = true;
+            dayForm.timeRanges = unavailablePeriods;
+          }
+        }
       }
     });
     
-    console.log('Form loaded with data:', availabilityForm.value);
+    console.log('Form loaded with unavailability data:', availabilityForm.value);
     
   } catch (error) {
     console.error('Error loading availability:', error);
-    showSnackbar('Error loading availability data', 'error');
+    showSnackbar('Error loading unavailability data', 'error');
   } finally {
     loading.value = false;
   }
@@ -197,7 +232,8 @@ const loadAvailabilityData = async () => {
 
 // Validate time ranges for a specific day
 const validateTimeRanges = (dayForm) => {
-  if (dayForm.isUnavailable) return null;
+  // Only validate if there are time ranges to check (when day has unavailable times)
+  if (!dayForm.isUnavailable || dayForm.timeRanges.length === 0) return null;
   
   for (let i = 0; i < dayForm.timeRanges.length; i++) {
     const range = dayForm.timeRanges[i];
@@ -206,7 +242,7 @@ const validateTimeRanges = (dayForm) => {
     const endTime24 = convertTo24Hour(range.endTime);
     
     if (startTime24 >= endTime24) {
-      return `Time range ${i + 1}: End time must be after start time`;
+      return `Unavailable time range ${i + 1}: End time must be after start time`;
     }
     
     // Check for overlapping ranges
@@ -219,7 +255,7 @@ const validateTimeRanges = (dayForm) => {
         (startTime24 < otherEndTime24 && endTime24 > otherStartTime24) ||
         (otherStartTime24 < endTime24 && otherEndTime24 > startTime24)
       ) {
-        return `Time ranges ${i + 1} and ${j + 1} overlap`;
+        return `Unavailable time ranges ${i + 1} and ${j + 1} overlap`;
       }
     }
   }
@@ -247,51 +283,86 @@ const saveAvailability = async () => {
     const promises = [];
     
     for (const dayForm of availabilityForm.value) {
-      if (dayForm.isUnavailable) {
-        // Delete all existing time ranges for this day
-        dayForm.timeRanges.forEach(range => {
-          if (range.availabilityId) {
-            promises.push(
-              AvailabilityServices.delete(range.availabilityId).then(() => {
-                range.availabilityId = null;
-              })
-            );
-          }
-        });
+      
+      // Delete all existing availability records for this day first
+      dayForm.timeRanges.forEach(range => {
+        if (range.availabilityId) {
+          promises.push(
+            AvailabilityServices.delete(range.availabilityId).then(() => {
+              range.availabilityId = null;
+            })
+          );
+        }
+      });
+      
+      if (!dayForm.isUnavailable || dayForm.timeRanges.length === 0) {
+        // Day is fully available - save full day availability
+        const fullDayPayload = {
+          user_id: currentUser.value.userId,
+          day_of_week: dayForm.day,
+          start_time: '00:00:00',
+          end_time: '23:59:00',
+          is_active: true
+        };
+        
+        promises.push(
+          AvailabilityServices.create(fullDayPayload).then((response) => {
+            // Store the ID for potential future updates
+            dayForm.fullDayAvailabilityId = response.data.availability_id;
+          })
+        );
       } else {
-        // Handle multiple time ranges for this day
-        dayForm.timeRanges.forEach(range => {
-          const availabilityPayload = {
+        // Day has unavailable periods - convert to available periods (gaps)
+        // Sort unavailable periods by start time
+        const sortedUnavailablePeriods = [...dayForm.timeRanges].sort((a, b) => {
+          const startA = convertTo24Hour(a.startTime);
+          const startB = convertTo24Hour(b.startTime);
+          return startA.localeCompare(startB);
+        });
+        
+        let currentTime = '00:00';
+        
+        for (const unavailablePeriod of sortedUnavailablePeriods) {
+          const unavailableStart = convertTo24Hour(unavailablePeriod.startTime);
+          
+          // If there's a gap between current time and unavailable start, create available period
+          if (currentTime < unavailableStart) {
+            const availablePayload = {
+              user_id: currentUser.value.userId,
+              day_of_week: dayForm.day,
+              start_time: currentTime + ':00',
+              end_time: unavailableStart + ':00',
+              is_active: true
+            };
+            
+            promises.push(AvailabilityServices.create(availablePayload));
+          }
+          
+          // Move current time to end of unavailable period
+          currentTime = convertTo24Hour(unavailablePeriod.endTime);
+        }
+        
+        // Add final available period if day doesn't end with unavailable period
+        if (currentTime < '23:59') {
+          const finalAvailablePayload = {
             user_id: currentUser.value.userId,
             day_of_week: dayForm.day,
-            start_time: convertTo24Hour(range.startTime) + ':00',
-            end_time: convertTo24Hour(range.endTime) + ':00',
+            start_time: currentTime + ':00',
+            end_time: '23:59:00',
             is_active: true
           };
-
-          if (range.availabilityId) {
-            // Update existing
-            promises.push(
-              AvailabilityServices.update(range.availabilityId, availabilityPayload)
-            );
-          } else {
-            // Create new
-            promises.push(
-              AvailabilityServices.create(availabilityPayload).then((response) => {
-                range.availabilityId = response.data.availability_id;
-              })
-            );
-          }
-        });
+          
+          promises.push(AvailabilityServices.create(finalAvailablePayload));
+        }
       }
     }
     
     await Promise.all(promises);
-    showSnackbar('Availability saved successfully!', 'success');
+    showSnackbar('Unavailability schedule saved successfully!', 'success');
     
   } catch (error) {
-    console.error('Error saving availability:', error);
-    showSnackbar('Error saving availability', 'error');
+    console.error('Error saving unavailability:', error);
+    showSnackbar('Error saving unavailability schedule', 'error');
   } finally {
     loading.value = false;
   }
@@ -304,39 +375,42 @@ const showSnackbar = (text, color = 'success') => {
 };
 
 const resetToDefaults = () => {
-  // Reset form to default values
+  // Reset form to default values - all days fully available
   availabilityForm.value.forEach(dayForm => {
-    dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }];
-    // Monday-Friday available, Weekend unavailable
-    dayForm.isUnavailable = dayForm.day === 0 || dayForm.day === 6;
+    dayForm.timeRanges = [];
+    dayForm.isUnavailable = false; // All days fully available
   });
-  showSnackbar('Form reset to defaults', 'info');
+  showSnackbar('Form reset to defaults - all days fully available', 'info');
 };
 
 // Quick action functions
-const setWeekdaysOnly = () => {
+const setWeekendUnavailable = () => {
   availabilityForm.value.forEach(dayForm => {
-    dayForm.isUnavailable = dayForm.day === 0 || dayForm.day === 6; // Sunday and Saturday
-    if (!dayForm.isUnavailable) {
-      dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }];
+    if (dayForm.day === 0 || dayForm.day === 6) { // Sunday and Saturday
+      dayForm.isUnavailable = true;
+      dayForm.timeRanges = [{ startTime: '12:00 AM', endTime: '11:59 PM', availabilityId: null }];
+    } else {
+      dayForm.isUnavailable = false;
+      dayForm.timeRanges = [];
     }
   });
-  showSnackbar('Set to weekdays only (Mon-Fri, 9:00 AM - 5:00 PM)', 'info');
+  showSnackbar('Weekend marked as unavailable, weekdays fully available', 'info');
 };
 
-const setFullWeek = () => {
+const setFullWeekAvailable = () => {
   availabilityForm.value.forEach(dayForm => {
     dayForm.isUnavailable = false;
-    dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }];
+    dayForm.timeRanges = [];
   });
-  showSnackbar('Set full week availability (9:00 AM - 5:00 PM)', 'info');
+  showSnackbar('Full week set as available (no unavailable times)', 'info');
 };
 
-const setAllUnavailable = () => {
+const setAllDaysUnavailable = () => {
   availabilityForm.value.forEach(dayForm => {
     dayForm.isUnavailable = true;
+    dayForm.timeRanges = [{ startTime: '12:00 AM', endTime: '11:59 PM', availabilityId: null }];
   });
-  showSnackbar('All days set to unavailable', 'info');
+  showSnackbar('All days set to fully unavailable', 'info');
 };
 
 // Add and remove time range functions
@@ -402,8 +476,8 @@ onMounted(async () => {
     <!-- Header Section -->
     <div class="page-header">
       <div class="header-content">
-        <h1 class="page-title">My Availability</h1>
-        <p class="page-subtitle">Set your weekly availability for scheduling</p>
+        <h1 class="page-title">My Unavailability</h1>
+        <p class="page-subtitle">Set your weekly unavailable hours for scheduling</p>
       </div>
       <v-btn 
         color="#2c3e50"
@@ -413,8 +487,8 @@ onMounted(async () => {
         size="large"
         rounded="lg"
       >
-        <v-icon class="mr-2">mdi-clock</v-icon>
-        Save Availability
+        <v-icon class="mr-2">mdi-clock-off</v-icon>
+        Save Unavailability
       </v-btn>
     </div>
 
@@ -422,13 +496,13 @@ onMounted(async () => {
     <v-card class="weekly-summary-card" elevation="0" rounded="lg">
       <v-card-text class="pa-6">
         <div class="d-flex align-center">
-          <v-icon class="mr-3" size="20" color="#6c757d">mdi-calendar-clock</v-icon>
+          <v-icon class="mr-3" size="20" color="#6c757d">mdi-calendar-remove</v-icon>
           <h3 class="summary-title">Weekly Summary</h3>
         </div>
-        <p class="summary-subtitle">Your total available hours per week</p>
+        <p class="summary-subtitle">Your total unavailable hours per week</p>
         <div class="hours-display">
-          <span class="hours-number">{{ Math.round(totalAvailableHours * 10) / 10 }}</span>
-          <span class="hours-label">hours per week</span>
+          <span class="hours-number">{{ Math.round(totalUnavailableHours * 10) / 10 }}</span>
+          <span class="hours-label">hours unavailable per week</span>
         </div>
       </v-card-text>
     </v-card>
@@ -447,8 +521,8 @@ onMounted(async () => {
           
           <div class="day-status">
             <v-chip
-              :color="dayForm.isUnavailable ? '#e9ecef' : '#e8f5e8'"
-              :text-color="dayForm.isUnavailable ? '#6c757d' : '#2d5016'"
+              :color="(!dayForm.isUnavailable || dayForm.timeRanges.length === 0) ? '#e8f5e8' : '#ffe6e6'"
+              :text-color="(!dayForm.isUnavailable || dayForm.timeRanges.length === 0) ? '#2d5016' : '#8b0000'"
               size="small"
               class="status-chip"
             >
@@ -458,15 +532,15 @@ onMounted(async () => {
           
           <div class="day-actions">
             <v-btn
-              v-if="dayForm.isUnavailable"
-              color="#2c3e50"
+              v-if="!dayForm.isUnavailable || dayForm.timeRanges.length === 0"
+              color="#dc3545"
               variant="contained"
               size="small"
               rounded="lg"
-              @click="dayForm.isUnavailable = false; toggleTimeInputs(dayIndex)"
+              @click="dayForm.isUnavailable = true; dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }]; toggleTimeInputs(dayIndex)"
               class="action-btn"
             >
-              Mark Available
+              Add Unavailable Times
             </v-btn>
             <v-btn
               v-else
@@ -485,7 +559,7 @@ onMounted(async () => {
 
         <!-- Expandable Time Input Section -->
         <v-expand-transition>
-          <div v-show="showTimeInputs[dayIndex] && !dayForm.isUnavailable" class="time-inputs-section">
+          <div v-show="showTimeInputs[dayIndex] && dayForm.isUnavailable" class="time-inputs-section">
             <div class="time-ranges-container">
               <div 
                 v-for="(range, rangeIndex) in dayForm.timeRanges" 
@@ -555,16 +629,16 @@ onMounted(async () => {
                 <v-btn
                   variant="outlined"
                   size="small"
-                  color="#dc3545"
-                  @click="dayForm.isUnavailable = true; showTimeInputs[dayIndex] = false"
+                  color="#28a745"
+                  @click="dayForm.isUnavailable = false; dayForm.timeRanges = []; showTimeInputs[dayIndex] = false"
                   class="mr-2"
                 >
-                  Mark Unavailable
+                  Mark Fully Available
                 </v-btn>
                 <v-btn
                   variant="contained"
                   size="small"
-                  color="#28a745"
+                  color="#2c3e50"
                   @click="showTimeInputs[dayIndex] = false"
                 >
                   Done
