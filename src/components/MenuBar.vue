@@ -195,6 +195,7 @@ watch(showNotifications, (val) => {
         </v-btn>
         
         <v-btn 
+          v-if="user.is_super_admin" 
           :to="{ name: 'users' }"
           class="nav-btn"
           variant="text"
