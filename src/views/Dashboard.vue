@@ -4,20 +4,6 @@
     <v-card class="calendar-container mb-8" elevation="0">
       <div class="calendar-header">
         <h2>{{ areaName }} Schedule</h2>
-        <div class="view-toggle">
-          <button 
-            @click="calendarView = 'week'"
-            :class="['toggle-btn', { active: calendarView === 'week' }]"
-          >
-            Week
-          </button>
-          <button 
-            @click="calendarView = 'month'"
-            :class="['toggle-btn', { active: calendarView === 'month' }]"
-          >
-            Month
-          </button>
-        </div>
       </div>
       
       <div class="calendar-body">
@@ -29,8 +15,8 @@
           :active-view="calendarView"
           :disable-views="['years', 'year', 'day']"
           :editable-events="{ title: false, drag: false, resize: false, delete: false, create: false }"
-          :time-from="480" 
-          :time-to="1260"
+          :time-from="300" 
+          :time-to="1380"
           :time-step="60"
           :twelve-hour="true"
           events-on-month-view="short"
@@ -91,6 +77,7 @@ const user = ref(Utils.getStore('user'))
 const loading = ref(true)
 const loadingMessage = ref('Initializing...')
 const shifts = ref([])
+const userArea = ref(null)
 const calendarView = ref('week')
 const openShiftsRef = ref(null)
 
@@ -98,13 +85,21 @@ const today = new Date()
 
 // Computed Properties
 const areaName = computed(() => {
+  // First try to use the stored user area
+  if (userArea.value && userArea.value !== 'My Area') {
+    return userArea.value
+  }
+  
+  // Fallback to area from shifts if available
   if (shifts.value && shifts.value.length > 0) {
     const firstShiftArea = shifts.value[0]?.area_name
     if (firstShiftArea && firstShiftArea !== 'Unknown Area') {
       return firstShiftArea
     }
   }
-  return 'My Area'
+  
+  // Last fallback - try to get a default area name
+  return 'Area'
 })
 
 const calendarEvents = computed(() => {
@@ -320,16 +315,9 @@ async function loadUserShifts() {
     const shiftResponse = await ShiftServices.getByUser(userId)
     let userShifts = shiftResponse.data || shiftResponse || []
     
-    if (userShifts.length === 0) {
-      shifts.value = []
-      loading.value = false
-      loadingMessage.value = 'No shifts scheduled'
-      return
-    }
-    
     loadingMessage.value = 'Loading position and area details...'
     
-    // Load additional data for position and area names
+    // Load additional data for position and area names (always load these)
     const [positionResponse, areaResponse] = await Promise.all([
       PositionServices.getAll().catch(err => {
         console.error('Position service error:', err)
@@ -343,6 +331,62 @@ async function loadUserShifts() {
     
     const positions = positionResponse.data || positionResponse || []
     const areas = areaResponse.data || areaResponse || []
+    
+    // Try to determine user's area using multiple approaches
+    let userAreaName = null
+    
+    // Method 1: Try from user data with different possible field names
+    const possiblePositionFields = ['position_id', 'positionId', 'Position_id']
+    for (const field of possiblePositionFields) {
+      if (currentUser[field]) {
+        const userPosition = positions.find(p => 
+          Number(p.position_id) === Number(currentUser[field]) || 
+          Number(p.positionId) === Number(currentUser[field])
+        )
+        if (userPosition) {
+          const userAreaFromPosition = areas.find(a => 
+            Number(a.area_id) === Number(userPosition.area_id) ||
+            Number(a.areaId) === Number(userPosition.area_id)
+          )
+          if (userAreaFromPosition && userAreaFromPosition.area_name !== 'Unknown Area') {
+            userAreaName = userAreaFromPosition.area_name
+            break
+          }
+        }
+      }
+    }
+    
+    // Method 2: If no area from user data, try from shifts
+    if (!userAreaName && userShifts.length > 0) {
+      const firstShift = userShifts[0]
+      const position = positions.find(p => Number(p.position_id) === Number(firstShift.position_id))
+      if (position) {
+        const area = areas.find(a => Number(a.area_id) === Number(position.area_id))
+        if (area && area.area_name !== 'Unknown Area') {
+          userAreaName = area.area_name
+        }
+      }
+    }
+    
+    // Method 3: If still no area, check if areas array has data and use first available area
+    if (!userAreaName && areas.length > 0) {
+      const firstArea = areas[0]
+      if (firstArea && firstArea.area_name !== 'Unknown Area') {
+        userAreaName = firstArea.area_name
+      }
+    }
+    
+    // Store the user's area for the header
+    if (userAreaName) {
+      userArea.value = userAreaName
+    }
+    
+    if (userShifts.length === 0) {
+      shifts.value = []
+      loading.value = false
+      loadingMessage.value = 'No shifts scheduled'
+      return
+    }
     
     // Enhance shifts with position and area names
     const enhancedShifts = userShifts.map(shift => {
@@ -443,7 +487,7 @@ function retryLoadData() {
 
 .calendar-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   padding: 24px;
   background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
@@ -636,6 +680,7 @@ function retryLoadData() {
   .calendar-header {
     flex-direction: column;
     gap: 16px;
+    justify-content: center;
   }
 }
 </style>
