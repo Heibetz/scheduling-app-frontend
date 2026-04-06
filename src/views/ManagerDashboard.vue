@@ -20,52 +20,93 @@
     <v-row class="mb-4">
       <v-col cols="12">
         <v-card class="pa-4" elevation="2">
-          <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-3">
-            <div class="d-flex align-center ga-3">
-              <span class="text-h6 font-weight-bold">Schedule</span>
-              <v-chip v-if="activeSchedule" :color="activeSchedule.status === 'live' ? 'primary' : 'brown'" variant="tonal">
-                {{ activeSchedule.status === 'live' ? 'Live' : 'Created' }}
-              </v-chip>
-            </div>
-            <div class="d-flex align-center ga-2">
+
+          <!-- ═══ OVERVIEW MODE: monthly calendar showing all schedules ═══ -->
+          <template v-if="viewMode === 'overview'">
+            <div class="d-flex align-center justify-space-between ga-3 mb-3">
+              <span class="text-h6 font-weight-bold">Schedules</span>
               <v-btn color="primary" @click="openCreateScheduleDialog">
                 <v-icon start>mdi-calendar-plus</v-icon>
                 Create Schedule
               </v-btn>
-              <v-btn
-                v-if="activeSchedule && activeSchedule.status !== 'live'"
-                color="info"
-                variant="tonal"
-                @click="setScheduleLive"
-              >
-                <v-icon start>mdi-broadcast</v-icon>
-                Set Live
-              </v-btn>
-              <v-btn
-                v-if="activeSchedule"
-                color="error"
-                variant="tonal"
-                @click="showDeleteScheduleDialog = true"
-              >
-                <v-icon start>mdi-delete</v-icon>
-                Delete Schedule
-              </v-btn>
             </div>
-          </div>
 
-          <template v-if="areaSchedules.length > 0">
+            <div v-if="areaSchedules.length === 0" class="text-center text-grey pa-8">
+              <v-icon size="48" color="grey-lighten-1" class="mb-3">mdi-calendar-blank-outline</v-icon>
+              <p class="text-body-1">No schedules yet. Create one to get started.</p>
+            </div>
+
+            <vue-cal
+              v-else
+              class="overview-calendar"
+              :events="overviewEvents"
+              :selected-date="overviewSelectedDate"
+              active-view="month"
+              :twelve-hour="true"
+              :disable-views="['years', 'year', 'week', 'day']"
+              :time="false"
+              events-on-month-view="short"
+              :on-event-click="handleOverviewEventClick"
+              :editable-events="{ create: false, drag: false, resize: false, delete: false, title: false }"
+            />
+          </template>
+
+          <!-- ═══ SCHEDULE MODE: weekly shift editor for a single schedule ═══ -->
+          <template v-else>
+            <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-3">
+              <div class="d-flex align-center ga-3">
+                <v-btn variant="text" size="small" @click="backToOverview">
+                  <v-icon start>mdi-arrow-left</v-icon>
+                  Back
+                </v-btn>
+                <v-text-field
+                  v-if="editingScheduleName !== null"
+                  v-model="editingScheduleName"
+                  density="compact"
+                  hide-details
+                  variant="underlined"
+                  class="font-weight-bold text-h6"
+                  style="min-width: 300px; max-width: 400px"
+                  autofocus
+                  @blur="saveScheduleName"
+                  @keyup.enter="$event.target.blur()"
+                />
+                <span
+                  v-else
+                  class="text-h6 font-weight-bold"
+                  style="cursor: pointer"
+                  @click="editingScheduleName = activeSchedule?.schedule_name || ''"
+                >
+                  {{ activeSchedule?.schedule_name }}
+                  <v-icon size="16" class="ml-1" color="grey">mdi-pencil</v-icon>
+                </span>
+                <v-chip v-if="activeSchedule" :color="activeSchedule.status === 'live' ? 'primary' : 'brown'" variant="tonal">
+                  {{ activeSchedule.status === 'live' ? 'Live' : 'Draft' }}
+                </v-chip>
+              </div>
+              <div class="d-flex align-center ga-2">
+                <v-btn
+                  v-if="activeSchedule && activeSchedule.status !== 'live'"
+                  color="info"
+                  variant="tonal"
+                  @click="setScheduleLive"
+                >
+                  <v-icon start>mdi-broadcast</v-icon>
+                  Set Live
+                </v-btn>
+                <v-btn
+                  v-if="activeSchedule"
+                  color="error"
+                  variant="tonal"
+                  @click="showDeleteScheduleDialog = true"
+                >
+                  <v-icon start>mdi-delete</v-icon>
+                  Delete
+                </v-btn>
+              </div>
+            </div>
+
             <div class="d-flex flex-wrap align-center ga-3 mb-3">
-              <v-select
-                v-model="activeScheduleId"
-                :items="areaSchedules"
-                item-title="schedule_name"
-                item-value="schedule_id"
-                label="Active Schedule"
-                density="comfortable"
-                hide-details
-                style="max-width: 360px"
-              />
-
               <v-text-field
                 v-model.number="defaultShiftHours"
                 label="Default Shift (hrs)"
@@ -78,53 +119,51 @@
               />
             </div>
 
+            <div class="d-flex align-center justify-center ga-3 mb-2">
+              <v-btn
+                size="small"
+                variant="tonal"
+                :disabled="!canGoPrev"
+                @click="goToPrevWeek"
+              >
+                <v-icon start>mdi-chevron-left</v-icon>
+                Prev Week
+              </v-btn>
+              <span class="text-subtitle-1 font-weight-bold">
+                {{ currentWeekLabel }}
+              </span>
+              <v-btn
+                size="small"
+                variant="tonal"
+                :disabled="!canGoNext"
+                @click="goToNextWeek"
+              >
+                Next Week
+                <v-icon end>mdi-chevron-right</v-icon>
+              </v-btn>
+            </div>
+
             <vue-cal
-              class="manager-calendar"
+              class="manager-calendar hide-nav-arrows"
               :events="calendarEvents"
               :selected-date="calendarSelectedDate"
               active-view="week"
               :twelve-hour="true"
-              :disable-views="['years', 'year', 'day']"
-              :drag-to-create-event="internalVuecalView !== 'month'"
-              :editable-events="internalVuecalView === 'month' ? calendarMonthEditConfig : calendarEditConfig"
+              :disable-views="['years', 'year', 'month', 'day']"
+              :drag-to-create-event="true"
+              :editable-events="calendarEditConfig"
               :on-event-create="handleEventCreate"
               :on-event-click="handleEventClick"
               @event-drag-create="handleEventDragCreate"
               @cell-click="handleCellClick"
               @view-change="handleInternalViewChange"
               :time-from="360"
-              :time-to="1380"
-              :time-step="30"
-              :snap-to-time="30"
-              events-on-month-view="short"
+              :time-to="1200"
+              :time-step="60"
+              :snap-to-time="60"
             />
           </template>
 
-          <template v-else>
-            <div class="calendar-lock-wrapper">
-              <div class="calendar-lock-blur">
-                <vue-cal
-                  class="manager-calendar"
-                  :events="[]"
-                  :selected-date="new Date()"
-                  active-view="week"
-                  :twelve-hour="true"
-                  :disable-views="['years', 'year', 'day']"
-                  :time-from="360"
-                  :time-to="1380"
-                  :time-step="30"
-                  :snap-to-time="30"
-                  events-on-month-view="short"
-                />
-              </div>
-              <div class="calendar-lock-overlay">
-                <v-btn size="x-large" color="primary" @click="openCreateScheduleDialog">
-                  <v-icon start>mdi-lock-open-variant</v-icon>
-                  Create Schedule
-                </v-btn>
-              </div>
-            </div>
-          </template>
         </v-card>
       </v-col>
     </v-row>
@@ -697,9 +736,11 @@ export default {
     const areaPositions = ref([]);
     const allUsers = ref([]);
 
+    const viewMode = ref('overview');
     const areaSchedules = ref([]);
     const activeScheduleId = ref(null);
     const shifts = ref([]);
+    const overviewSelectedDate = ref(new Date());
 
     const calendarView = ref("week");
     const calendarSelectedDate = ref(new Date());
@@ -827,6 +868,84 @@ export default {
       return date;
     });
 
+    const parseLocalDate = (value) => {
+      if (!value) return new Date();
+      const str = typeof value === "string" ? value : value.toISOString();
+      const [y, m, d] = str.slice(0, 10).split("-").map(Number);
+      return new Date(y, m - 1, d);
+    };
+
+    const scheduleMinDate = computed(() => {
+      if (!activeSchedule.value?.start_date) return null;
+      const d = parseLocalDate(activeSchedule.value.start_date);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    });
+
+    const scheduleMaxDate = computed(() => {
+      if (!activeSchedule.value?.end_date) return null;
+      const d = parseLocalDate(activeSchedule.value.end_date);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    });
+
+    const getScheduleWeekLabel = (viewStartDate) => {
+      if (!activeSchedule.value?.start_date || !viewStartDate) return '';
+      const schedStart = parseLocalDate(activeSchedule.value.start_date);
+      const viewStart = new Date(viewStartDate);
+      const diffMs = viewStart.getTime() - schedStart.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      const weekNum = Math.floor(diffDays / 7) + 1;
+      return `Week ${weekNum}`;
+    };
+
+    const currentWeekLabel = computed(() => {
+      if (!activeSchedule.value?.start_date) return '';
+      const schedStart = parseLocalDate(activeSchedule.value.start_date);
+      const current = parseLocalDate(calendarSelectedDate.value);
+      const diffMs = current.getTime() - schedStart.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      const weekNum = Math.max(1, Math.floor(diffDays / 7) + 1);
+      return `Week ${weekNum}`;
+    });
+
+    const totalScheduleWeeks = computed(() => {
+      if (!activeSchedule.value?.start_date || !activeSchedule.value?.end_date) return 1;
+      const start = parseLocalDate(activeSchedule.value.start_date);
+      const end = parseLocalDate(activeSchedule.value.end_date);
+      const diffMs = end.getTime() - start.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      return Math.max(1, Math.ceil(diffDays / 7));
+    });
+
+    const currentWeekIndex = computed(() => {
+      if (!activeSchedule.value?.start_date) return 0;
+      const schedStart = parseLocalDate(activeSchedule.value.start_date);
+      const current = parseLocalDate(calendarSelectedDate.value);
+      const diffMs = current.getTime() - schedStart.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      return Math.max(0, Math.floor(diffDays / 7));
+    });
+
+    const canGoPrev = computed(() => currentWeekIndex.value > 0);
+    const canGoNext = computed(() => currentWeekIndex.value < totalScheduleWeeks.value - 1);
+
+    const goToPrevWeek = () => {
+      if (!canGoPrev.value) return;
+      const schedStart = parseLocalDate(activeSchedule.value.start_date);
+      const targetWeek = currentWeekIndex.value - 1;
+      const d = new Date(schedStart);
+      d.setDate(d.getDate() + targetWeek * 7);
+      calendarSelectedDate.value = d;
+    };
+
+    const goToNextWeek = () => {
+      if (!canGoNext.value) return;
+      const schedStart = parseLocalDate(activeSchedule.value.start_date);
+      const targetWeek = currentWeekIndex.value + 1;
+      const d = new Date(schedStart);
+      d.setDate(d.getDate() + targetWeek * 7);
+      calendarSelectedDate.value = d;
+    };
+
     const toDateOnly = (value) => {
       if (!value) return "";
       if (typeof value === "string" && value.length >= 10) return value.slice(0, 10);
@@ -867,6 +986,53 @@ export default {
     const workerOptions = computed(() =>
       workers.value.map((w) => ({ title: `${w.fName} ${w.lName}`, value: w.user_id }))
     );
+
+    const SCHEDULE_COLORS = [
+      'schedule-color-0',
+      'schedule-color-1',
+      'schedule-color-2',
+      'schedule-color-3',
+      'schedule-color-4',
+      'schedule-color-5',
+    ];
+
+    const overviewEvents = computed(() => {
+      return areaSchedules.value.map((schedule, index) => {
+        const start = parseLocalDate(schedule.start_date);
+        const end = parseLocalDate(schedule.end_date);
+        end.setHours(23, 59, 0, 0);
+        return {
+          start,
+          end,
+          title: schedule.schedule_name,
+          class: SCHEDULE_COLORS[index % SCHEDULE_COLORS.length],
+          schedule_id: schedule.schedule_id,
+        };
+      });
+    });
+
+    const handleOverviewEventClick = (eventData) => {
+      const event = eventData?.event || eventData;
+      const scheduleId = event?.schedule_id;
+      if (!scheduleId) return;
+      enterSchedule(scheduleId);
+    };
+
+    const enterSchedule = async (scheduleId) => {
+      const selected = areaSchedules.value.find((s) => Number(s.schedule_id) === Number(scheduleId));
+      if (selected?.start_date) {
+        calendarSelectedDate.value = parseLocalDate(selected.start_date);
+      }
+      viewMode.value = 'schedule';
+      activeScheduleId.value = scheduleId;
+      await fetchShifts(scheduleId);
+    };
+
+    const backToOverview = () => {
+      viewMode.value = 'overview';
+      activeScheduleId.value = null;
+      shifts.value = [];
+    };
 
     const calendarEvents = computed(() => {
       if (!activeSchedule.value) return [];
@@ -943,6 +1109,18 @@ export default {
         return;
       }
 
+      const newStart = scheduleForm.value.start_date;
+      const newEnd = endDate;
+      const overlap = areaSchedules.value.find((s) => {
+        const existStart = toDateOnly(s.start_date);
+        const existEnd = toDateOnly(s.end_date);
+        return newStart <= existEnd && newEnd >= existStart;
+      });
+      if (overlap) {
+        scheduleError.value = `Overlaps with "${overlap.schedule_name}" (${toDateOnly(overlap.start_date)} to ${toDateOnly(overlap.end_date)}).`;
+        return;
+      }
+
       scheduleError.value = "";
       savingSchedule.value = true;
 
@@ -959,7 +1137,6 @@ export default {
         const response = await ScheduleServices.create(payload);
         showCreateScheduleDialog.value = false;
         await fetchAreaSchedules(area.value.area_id);
-        activeScheduleId.value = response?.data?.schedule_id || activeScheduleId.value;
       } catch (error) {
         scheduleError.value = error?.response?.data?.message || "Failed to create schedule.";
       } finally {
@@ -978,6 +1155,20 @@ export default {
       }
     };
 
+    const editingScheduleName = ref(null);
+
+    const saveScheduleName = async () => {
+      const newName = (editingScheduleName.value || '').trim();
+      editingScheduleName.value = null;
+      if (!newName || !activeSchedule.value || newName === activeSchedule.value.schedule_name) return;
+      try {
+        await ScheduleServices.update(activeSchedule.value.schedule_id, { schedule_name: newName });
+        await fetchAreaSchedules(area.value.area_id);
+      } catch (error) {
+        console.error('Error renaming schedule:', error);
+      }
+    };
+
     const showDeleteScheduleDialog = ref(false);
     const deletingSchedule = ref(false);
 
@@ -989,9 +1180,7 @@ export default {
         showDeleteScheduleDialog.value = false;
         activeScheduleId.value = null;
         await fetchAreaSchedules(area.value.area_id);
-        if (areaSchedules.value.length > 0) {
-          activeScheduleId.value = areaSchedules.value[0].schedule_id;
-        }
+        viewMode.value = 'overview';
       } catch (error) {
         console.error("Error deleting schedule:", error);
       } finally {
@@ -1682,11 +1871,7 @@ export default {
         if (areaSchedules.value.length === 0) {
           activeScheduleId.value = null;
           shifts.value = [];
-          return;
         }
-
-        const preferred = areaSchedules.value.find((s) => s.status === "live") || areaSchedules.value[0];
-        activeScheduleId.value = preferred.schedule_id;
       } catch (error) {
         areaSchedules.value = [];
         activeScheduleId.value = null;
@@ -1757,13 +1942,9 @@ export default {
         shifts.value = [];
         return;
       }
-
-      const selected = areaSchedules.value.find((s) => Number(s.schedule_id) === Number(scheduleId));
-      if (selected?.start_date) {
-        calendarSelectedDate.value = new Date(selected.start_date);
+      if (viewMode.value === 'schedule') {
+        await fetchShifts(scheduleId);
       }
-
-      await fetchShifts(scheduleId);
     });
 
     onMounted(() => {
@@ -1775,6 +1956,7 @@ export default {
       workers,
       areaPositions,
       allUsers,
+      viewMode,
       areaSchedules,
       activeSchedule,
       activeScheduleId,
@@ -1782,6 +1964,22 @@ export default {
       calendarSelectedDate,
       biWeekSecondDate,
       calendarEvents,
+      overviewEvents,
+      overviewSelectedDate,
+      handleOverviewEventClick,
+      enterSchedule,
+      backToOverview,
+      editingScheduleName,
+      saveScheduleName,
+      scheduleMinDate,
+      scheduleMaxDate,
+      getScheduleWeekLabel,
+      currentWeekLabel,
+      totalScheduleWeeks,
+      canGoPrev,
+      canGoNext,
+      goToPrevWeek,
+      goToNextWeek,
       calendarEditConfig,
       workerOptions,
       showCreateScheduleDialog,
@@ -1886,7 +2084,7 @@ export default {
 
 <style scoped>
 .manager-calendar {
-  height: 620px;
+  height: 650px;
 }
 
 .calendar-lock-wrapper {
@@ -1934,5 +2132,55 @@ export default {
 
 :deep(.manager-calendar.vuecal--drag-creating-event) {
   cursor: ns-resize;
+}
+
+/* Hide vue-cal's built-in title bar in schedule mode */
+:deep(.hide-nav-arrows .vuecal__title-bar) {
+  display: none !important;
+}
+
+/* Overview monthly calendar */
+.overview-calendar {
+  height: 420px;
+}
+
+:deep(.overview-calendar .vuecal__event) {
+  cursor: pointer !important;
+}
+
+:deep(.vuecal__event.schedule-color-0) {
+  background-color: #1976d2 !important;
+  border-color: #1565c0 !important;
+  color: #fff !important;
+}
+
+:deep(.vuecal__event.schedule-color-1) {
+  background-color: #e65100 !important;
+  border-color: #bf360c !important;
+  color: #fff !important;
+}
+
+:deep(.vuecal__event.schedule-color-2) {
+  background-color: #2e7d32 !important;
+  border-color: #1b5e20 !important;
+  color: #fff !important;
+}
+
+:deep(.vuecal__event.schedule-color-3) {
+  background-color: #7b1fa2 !important;
+  border-color: #6a1b9a !important;
+  color: #fff !important;
+}
+
+:deep(.vuecal__event.schedule-color-4) {
+  background-color: #c62828 !important;
+  border-color: #b71c1c !important;
+  color: #fff !important;
+}
+
+:deep(.vuecal__event.schedule-color-5) {
+  background-color: #00838f !important;
+  border-color: #006064 !important;
+  color: #fff !important;
 }
 </style>
