@@ -220,15 +220,28 @@
               <tr>
                 <th>Position Name</th>
                 <th>Manager Position</th>
+                <th class="text-center">Actions</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="areaPositions.length === 0">
-                <td colspan="2" class="text-center text-grey">No positions found for this area</td>
+                <td colspan="3" class="text-center text-grey">No positions found for this area</td>
               </tr>
               <tr v-for="pos in areaPositions" :key="pos.position_id">
                 <td>{{ pos.position_name }}</td>
                 <td>{{ pos.is_manager ? 'Yes' : 'No' }}</td>
+                <td class="text-center">
+                  <v-btn
+                    v-if="!pos.is_manager"
+                    icon
+                    size="small"
+                    variant="text"
+                    color="error"
+                    @click="confirmDeletePosition(pos)"
+                  >
+                    <v-icon size="20">mdi-delete</v-icon>
+                  </v-btn>
+                </td>
               </tr>
             </tbody>
           </v-table>
@@ -529,7 +542,7 @@
           />
           <v-select
             v-model="positionFormData.worker_ids"
-            :items="allUsers"
+            :items="positionWorkerOptions"
             :item-title="u => `${u.fName} ${u.lName} (${u.email})`"
             item-value="user_id"
             label="Assign Workers (optional)"
@@ -544,6 +557,22 @@
           <v-spacer />
           <v-btn text @click="showPositionDialog = false">Cancel</v-btn>
           <v-btn color="primary" :loading="savingPosition" @click="savePosition">Create</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Delete Position Confirmation -->
+    <v-dialog v-model="showDeletePositionDialog" max-width="400px">
+      <v-card>
+        <v-card-title class="text-h6 pa-4">Delete Position</v-card-title>
+        <v-card-text>
+          Are you sure you want to delete <strong>{{ deletingPosition?.position_name }}</strong>?
+          This will also remove all worker assignments for this position.
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showDeletePositionDialog = false">Cancel</v-btn>
+          <v-btn color="error" :loading="deletingPositionLoading" @click="deletePosition">Delete</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -1513,6 +1542,39 @@ export default {
       }
     };
 
+    const positionWorkerOptions = computed(() => {
+      const userId = user.value?.userId || user.value?.user_id;
+      const areaWorkerIds = workers.value.map((w) => Number(w.user_id));
+      const combined = new Set([...areaWorkerIds, Number(userId)]);
+      return allUsers.value.filter((u) => combined.has(Number(u.user_id)));
+    });
+
+    const showDeletePositionDialog = ref(false);
+    const deletingPosition = ref(null);
+    const deletingPositionLoading = ref(false);
+
+    const confirmDeletePosition = (pos) => {
+      deletingPosition.value = pos;
+      showDeletePositionDialog.value = true;
+    };
+
+    const deletePosition = async () => {
+      if (!deletingPosition.value) return;
+      deletingPositionLoading.value = true;
+      try {
+        await PositionServices.delete(deletingPosition.value.position_id);
+        showDeletePositionDialog.value = false;
+        deletingPosition.value = null;
+        const puRes = await PositionUserServices.getAll();
+        const allPosRes = await PositionServices.getAll();
+        await fetchAreaWorkers(area.value.area_id, allPosRes.data, puRes.data);
+      } catch (error) {
+        console.error("Error deleting position:", error);
+      } finally {
+        deletingPositionLoading.value = false;
+      }
+    };
+
     const openPositionDialog = () => {
       positionFormData.value = { position_name: "", worker_ids: [] };
       positionError.value = "";
@@ -2011,10 +2073,16 @@ export default {
       removeShift,
       showPositionDialog,
       positionFormData,
+      positionWorkerOptions,
       savingPosition,
       positionError,
       openPositionDialog,
       savePosition,
+      showDeletePositionDialog,
+      deletingPosition,
+      deletingPositionLoading,
+      confirmDeletePosition,
+      deletePosition,
       // Area task lists
       showAreaTasksDialog,
       areaTasks,
