@@ -89,10 +89,10 @@
                   v-if="activeSchedule && activeSchedule.status !== 'live'"
                   color="info"
                   variant="tonal"
-                  @click="setScheduleLive"
+                  @click="showGoLiveDialog = true"
                 >
                   <v-icon start>mdi-broadcast</v-icon>
-                  Set Live
+                  Go Live
                 </v-btn>
                 <v-btn
                   v-if="activeSchedule"
@@ -702,6 +702,32 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-dialog v-model="showGoLiveDialog" max-width="500px">
+      <v-card>
+        <v-card-title class="pa-4" style="background-color: #1976d2; color: white">
+          <v-icon color="white" class="mr-2">mdi-broadcast</v-icon>
+          Go Live
+        </v-card-title>
+        <v-card-text class="pa-6">
+          <p class="text-body-1 mb-3">
+            Are you sure you want to publish
+            <strong>{{ activeSchedule?.schedule_name }}</strong>?
+          </p>
+          <p class="text-body-2 text-grey-darken-1">
+            This will make all shifts visible to workers and notify everyone who has been assigned a shift. This action cannot be undone.
+          </p>
+        </v-card-text>
+        <v-card-actions class="pa-4 pt-0">
+          <v-spacer />
+          <v-btn variant="text" @click="showGoLiveDialog = false">Cancel</v-btn>
+          <v-btn color="info" variant="flat" :loading="publishingSchedule" @click="confirmGoLive">
+            <v-icon start>mdi-broadcast</v-icon>
+            Go Live
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -1148,10 +1174,22 @@ export default {
       if (!activeSchedule.value) return;
 
       try {
-        await ScheduleServices.update(activeSchedule.value.schedule_id, { status: "live" });
+        await ScheduleServices.publish(activeSchedule.value.schedule_id);
         await fetchAreaSchedules(area.value.area_id);
       } catch (error) {
-        console.error("Error setting schedule live:", error);
+        console.error("Error publishing schedule:", error);
+      }
+    };
+
+    const confirmGoLive = async () => {
+      publishingSchedule.value = true;
+      try {
+        await setScheduleLive();
+        showGoLiveDialog.value = false;
+      } catch (error) {
+        console.error("Error in confirmGoLive:", error);
+      } finally {
+        publishingSchedule.value = false;
       }
     };
 
@@ -1171,6 +1209,8 @@ export default {
 
     const showDeleteScheduleDialog = ref(false);
     const deletingSchedule = ref(false);
+    const showGoLiveDialog = ref(false);
+    const publishingSchedule = ref(false);
 
     const deleteSchedule = async () => {
       if (!activeSchedule.value) return;
@@ -1990,6 +2030,9 @@ export default {
       openCreateScheduleDialog,
       saveSchedule,
       setScheduleLive,
+      confirmGoLive,
+      showGoLiveDialog,
+      publishingSchedule,
       showDeleteScheduleDialog,
       deletingSchedule,
       deleteSchedule,
