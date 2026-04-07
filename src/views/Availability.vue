@@ -8,48 +8,48 @@ const router = useRouter();
 const currentUser = ref(null);
 const loading = ref(false);
 
-// Form data for each day - updated structure to support multiple unavailable time ranges
+// Form data for each day - updated structure to support multiple available time ranges
 const availabilityForm = ref([
   { 
     day: 1, 
     dayName: 'Monday', 
-    isUnavailable: false,  // false = fully available, true = has unavailable time ranges
-    timeRanges: [] // Empty means no unavailable times (fully available)
+    isAvailable: true,  // true = has available time ranges, false = not available
+    timeRanges: [] // Empty with isAvailable=true means fully available (24/7)
   },
   { 
     day: 2, 
     dayName: 'Tuesday', 
-    isUnavailable: false, 
+    isAvailable: true, 
     timeRanges: [] 
   },
   { 
     day: 3, 
     dayName: 'Wednesday', 
-    isUnavailable: false, 
+    isAvailable: true, 
     timeRanges: [] 
   },
   { 
     day: 4, 
     dayName: 'Thursday', 
-    isUnavailable: false, 
+    isAvailable: true, 
     timeRanges: [] 
   },
   { 
     day: 5, 
     dayName: 'Friday', 
-    isUnavailable: false, 
+    isAvailable: true, 
     timeRanges: [] 
   },
   { 
     day: 6, 
     dayName: 'Saturday', 
-    isUnavailable: false, 
+    isAvailable: true, 
     timeRanges: [] 
   },
   { 
     day: 0, 
     dayName: 'Sunday', 
-    isUnavailable: false, 
+    isAvailable: true, 
     timeRanges: [] 
   },
 ]);
@@ -70,13 +70,16 @@ const toggleTimeInputs = (dayIndex) => {
 
 // Get status text for a day
 const getDayStatus = (dayForm) => {
-  if (!dayForm.isUnavailable || dayForm.timeRanges.length === 0) {
-    return 'Fully Available';
+  if (!dayForm.isAvailable) {
+    return 'Not Available';
+  }
+  if (dayForm.timeRanges.length === 0) {
+    return 'Fully Available (24/7)';
   }
   if (dayForm.timeRanges.length === 1) {
-    return `Unavailable: ${dayForm.timeRanges[0].startTime} - ${dayForm.timeRanges[0].endTime}`;
+    return `Available: ${dayForm.timeRanges[0].startTime} - ${dayForm.timeRanges[0].endTime}`;
   }
-  return `${dayForm.timeRanges.length} unavailable periods`;
+  return `${dayForm.timeRanges.length} available periods`;
 };
 
 // Check if user has access
@@ -84,24 +87,25 @@ const hasAccess = computed(() => {
   return currentUser.value && !currentUser.value.is_super_admin;
 });
 
-// Calculate total unavailable hours for weekly summary
-const totalUnavailableHours = computed(() => {
+// Calculate total available hours for weekly summary (memoized for performance)
+const totalAvailableHours = computed(() => {
   let totalHours = 0;
-  availabilityForm.value.forEach(dayForm => {
-    if (dayForm.isUnavailable && dayForm.timeRanges.length > 0) {
-      dayForm.timeRanges.forEach(range => {
-        const startTime24 = convertTo24Hour(range.startTime);
-        const endTime24 = convertTo24Hour(range.endTime);
-        const [startHours, startMinutes] = startTime24.split(':').map(Number);
-        const [endHours, endMinutes] = endTime24.split(':').map(Number);
-        const startTotalMinutes = startHours * 60 + startMinutes;
-        const endTotalMinutes = endHours * 60 + endMinutes;
-        const durationMinutes = endTotalMinutes - startTotalMinutes;
-        totalHours += durationMinutes / 60;
-      });
+  for (const dayForm of availabilityForm.value) {
+    if (!dayForm.isAvailable) continue;
+    
+    if (dayForm.timeRanges.length === 0) {
+      totalHours += 24;
+    } else {
+      for (const range of dayForm.timeRanges) {
+        const start = convertTo24Hour(range.startTime).split(':');
+        const end = convertTo24Hour(range.endTime).split(':');
+        const startMinutes = parseInt(start[0]) * 60 + parseInt(start[1]);
+        const endMinutes = parseInt(end[0]) * 60 + parseInt(end[1]);
+        totalHours += (endMinutes - startMinutes) / 60;
+      }
     }
-  });
-  return totalHours;
+  }
+  return Math.round(totalHours * 10) / 10;
 });
 
 // Time options for dropdowns
@@ -140,7 +144,7 @@ const convertTo24Hour = (time12) => {
   return `${hours24.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 };
 
-// Load availability data from backend and convert to unavailability format
+// Load availability data from backend directly as availability
 const loadAvailabilityData = async () => {
   if (!currentUser.value?.userId) return;
   
@@ -154,7 +158,7 @@ const loadAvailabilityData = async () => {
     
     // Reset all days to fully available first
     availabilityForm.value.forEach(dayForm => {
-      dayForm.isUnavailable = false;
+      dayForm.isAvailable = true;
       dayForm.timeRanges = [];
     });
     
@@ -166,65 +170,55 @@ const loadAvailabilityData = async () => {
       }
       if (item.is_active) {
         dataByDay[item.day_of_week].push({
-          startTime: item.start_time.substring(0, 5),
-          endTime: item.end_time.substring(0, 5),
+          startTime: convertTo12Hour(item.start_time.substring(0, 5)),
+          endTime: convertTo12Hour(item.end_time.substring(0, 5)),
           availabilityId: item.availability_id
         });
       }
     });
     
-    // Convert available periods to unavailable periods (find gaps)
+    // Load available periods directly
     Object.keys(dataByDay).forEach(dayOfWeek => {
       const dayForm = availabilityForm.value.find(d => d.day === parseInt(dayOfWeek));
       if (dayForm && dataByDay[dayOfWeek].length > 0) {
-        const availablePeriods = dataByDay[dayOfWeek].sort((a, b) => a.startTime.localeCompare(b.startTime));
+        const availablePeriods = dataByDay[dayOfWeek].sort((a, b) => {
+          const startA = convertTo24Hour(a.startTime);
+          const startB = convertTo24Hour(b.startTime);
+          return startA.localeCompare(startB);
+        });
         
         // Check if it's a full day availability (00:00 to 23:59)
         if (availablePeriods.length === 1 && 
-            availablePeriods[0].startTime === '00:00' && 
-            availablePeriods[0].endTime === '23:59') {
-          // Full day available - no unavailable periods
-          dayForm.isUnavailable = false;
+            convertTo24Hour(availablePeriods[0].startTime) === '00:00' && 
+            convertTo24Hour(availablePeriods[0].endTime) === '23:59') {
+          // Full day available - empty time ranges means 24/7
+          dayForm.isAvailable = true;
           dayForm.timeRanges = [];
         } else {
-          // Partial availability - calculate unavailable periods (gaps)
-          const unavailablePeriods = [];
-          let currentTime = '00:00';
-          
-          for (const availablePeriod of availablePeriods) {
-            // Gap before this available period
-            if (currentTime < availablePeriod.startTime) {
-              unavailablePeriods.push({
-                startTime: convertTo12Hour(currentTime),
-                endTime: convertTo12Hour(availablePeriod.startTime),
-                availabilityId: null
-              });
-            }
-            currentTime = availablePeriod.endTime;
-          }
-          
-          // Gap after last available period
-          if (currentTime < '23:59') {
-            unavailablePeriods.push({
-              startTime: convertTo12Hour(currentTime),
-              endTime: convertTo12Hour('23:59'),
-              availabilityId: null
-            });
-          }
-          
-          if (unavailablePeriods.length > 0) {
-            dayForm.isUnavailable = true;
-            dayForm.timeRanges = unavailablePeriods;
-          }
+          // Specific available periods
+          dayForm.isAvailable = true;
+          dayForm.timeRanges = availablePeriods
         }
+      } else {
+        // No availability data - mark as not available
+        dayForm.isAvailable = false;
+        dayForm.timeRanges = [];
       }
     });
     
-    console.log('Form loaded with unavailability data:', availabilityForm.value);
+    // Mark days with no data as not available
+    availabilityForm.value.forEach(dayForm => {
+      if (!dataByDay[dayForm.day]) {
+        dayForm.isAvailable = false;
+        dayForm.timeRanges = [];
+      }
+    });
+    
+    console.log('Form loaded with availability data:', availabilityForm.value);
     
   } catch (error) {
     console.error('Error loading availability:', error);
-    showSnackbar('Error loading unavailability data', 'error');
+    showSnackbar('Error loading availability data', 'error');
   } finally {
     loading.value = false;
   }
@@ -232,8 +226,8 @@ const loadAvailabilityData = async () => {
 
 // Validate time ranges for a specific day
 const validateTimeRanges = (dayForm) => {
-  // Only validate if there are time ranges to check (when day has unavailable times)
-  if (!dayForm.isUnavailable || dayForm.timeRanges.length === 0) return null;
+  // Only validate if there are time ranges to check (when day has available times)
+  if (!dayForm.isAvailable || dayForm.timeRanges.length === 0) return null;
   
   for (let i = 0; i < dayForm.timeRanges.length; i++) {
     const range = dayForm.timeRanges[i];
@@ -242,7 +236,7 @@ const validateTimeRanges = (dayForm) => {
     const endTime24 = convertTo24Hour(range.endTime);
     
     if (startTime24 >= endTime24) {
-      return `Unavailable time range ${i + 1}: End time must be after start time`;
+      return `Available time range ${i + 1}: End time must be after start time`;
     }
     
     // Check for overlapping ranges
@@ -255,7 +249,7 @@ const validateTimeRanges = (dayForm) => {
         (startTime24 < otherEndTime24 && endTime24 > otherStartTime24) ||
         (otherStartTime24 < endTime24 && otherEndTime24 > startTime24)
       ) {
-        return `Unavailable time ranges ${i + 1} and ${j + 1} overlap`;
+        return `Available time ranges ${i + 1} and ${j + 1} overlap`;
       }
     }
   }
@@ -279,24 +273,29 @@ const saveAvailability = async () => {
   }
   
   loading.value = true;
+  
   try {
     const promises = [];
     
     for (const dayForm of availabilityForm.value) {
-      
       // Delete all existing availability records for this day first
-      dayForm.timeRanges.forEach(range => {
-        if (range.availabilityId) {
-          promises.push(
-            AvailabilityServices.delete(range.availabilityId).then(() => {
-              range.availabilityId = null;
-            })
-          );
-        }
-      });
+      // Get existing records to delete
+      const existingResponse = await AvailabilityServices.getByUserId(currentUser.value.userId);
+      const existingRecords = existingResponse.data.filter(item => 
+        item.day_of_week === dayForm.day && item.is_active
+      );
       
-      if (!dayForm.isUnavailable || dayForm.timeRanges.length === 0) {
-        // Day is fully available - save full day availability
+      for (const record of existingRecords) {
+        promises.push(AvailabilityServices.delete(record.availability_id));
+      }
+      
+      if (!dayForm.isAvailable) {
+        // Day is not available - don't create any availability records
+        continue;
+      }
+      
+      if (dayForm.timeRanges.length === 0) {
+        // Day is fully available (24/7) - save full day availability
         const fullDayPayload = {
           user_id: currentUser.value.userId,
           day_of_week: dayForm.day,
@@ -312,57 +311,31 @@ const saveAvailability = async () => {
           })
         );
       } else {
-        // Day has unavailable periods - convert to available periods (gaps)
-        // Sort unavailable periods by start time
-        const sortedUnavailablePeriods = [...dayForm.timeRanges].sort((a, b) => {
-          const startA = convertTo24Hour(a.startTime);
-          const startB = convertTo24Hour(b.startTime);
-          return startA.localeCompare(startB);
-        });
-        
-        let currentTime = '00:00';
-        
-        for (const unavailablePeriod of sortedUnavailablePeriods) {
-          const unavailableStart = convertTo24Hour(unavailablePeriod.startTime);
-          
-          // If there's a gap between current time and unavailable start, create available period
-          if (currentTime < unavailableStart) {
-            const availablePayload = {
-              user_id: currentUser.value.userId,
-              day_of_week: dayForm.day,
-              start_time: currentTime + ':00',
-              end_time: unavailableStart + ':00',
-              is_active: true
-            };
-            
-            promises.push(AvailabilityServices.create(availablePayload));
-          }
-          
-          // Move current time to end of unavailable period
-          currentTime = convertTo24Hour(unavailablePeriod.endTime);
-        }
-        
-        // Add final available period if day doesn't end with unavailable period
-        if (currentTime < '23:59') {
-          const finalAvailablePayload = {
+        // Day has specific available periods - save each one
+        for (const range of dayForm.timeRanges) {
+          const availablePayload = {
             user_id: currentUser.value.userId,
             day_of_week: dayForm.day,
-            start_time: currentTime + ':00',
-            end_time: '23:59:00',
+            start_time: convertTo24Hour(range.startTime) + ':00',
+            end_time: convertTo24Hour(range.endTime) + ':00',
             is_active: true
           };
           
-          promises.push(AvailabilityServices.create(finalAvailablePayload));
+          promises.push(
+            AvailabilityServices.create(availablePayload).then((response) => {
+              range.availabilityId = response.data.availability_id;
+            })
+          );
         }
       }
     }
     
     await Promise.all(promises);
-    showSnackbar('Unavailability schedule saved successfully!', 'success');
+    showSnackbar('Availability schedule saved successfully!', 'success');
     
   } catch (error) {
-    console.error('Error saving unavailability:', error);
-    showSnackbar('Error saving unavailability schedule', 'error');
+    console.error('Error saving availability:', error);
+    showSnackbar('Error saving availability schedule', 'error');
   } finally {
     loading.value = false;
   }
@@ -372,45 +345,50 @@ const showSnackbar = (text, color = 'success') => {
   snackbarText.value = text;
   snackbarColor.value = color;
   snackbar.value = true;
+  
+  // Auto-hide after 2 seconds for better UX
+  setTimeout(() => {
+    snackbar.value = false;
+  }, 2000);
 };
 
 const resetToDefaults = () => {
   // Reset form to default values - all days fully available
   availabilityForm.value.forEach(dayForm => {
     dayForm.timeRanges = [];
-    dayForm.isUnavailable = false; // All days fully available
+    dayForm.isAvailable = true; // All days fully available
   });
   showSnackbar('Form reset to defaults - all days fully available', 'info');
 };
 
 // Quick action functions
-const setWeekendUnavailable = () => {
+const setWeekdayAvailable = () => {
   availabilityForm.value.forEach(dayForm => {
     if (dayForm.day === 0 || dayForm.day === 6) { // Sunday and Saturday
-      dayForm.isUnavailable = true;
-      dayForm.timeRanges = [{ startTime: '12:00 AM', endTime: '11:59 PM', availabilityId: null }];
-    } else {
-      dayForm.isUnavailable = false;
+      dayForm.isAvailable = false;
       dayForm.timeRanges = [];
+    } else {
+      dayForm.isAvailable = true;
+      dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }];
     }
   });
-  showSnackbar('Weekend marked as unavailable, weekdays fully available', 'info');
+  showSnackbar('Weekdays set to 9-5 availability, weekends unavailable', 'info');
 };
 
 const setFullWeekAvailable = () => {
   availabilityForm.value.forEach(dayForm => {
-    dayForm.isUnavailable = false;
+    dayForm.isAvailable = true;
     dayForm.timeRanges = [];
   });
-  showSnackbar('Full week set as available (no unavailable times)', 'info');
+  showSnackbar('Full week set as available (24/7)', 'info');
 };
 
 const setAllDaysUnavailable = () => {
   availabilityForm.value.forEach(dayForm => {
-    dayForm.isUnavailable = true;
-    dayForm.timeRanges = [{ startTime: '12:00 AM', endTime: '11:59 PM', availabilityId: null }];
+    dayForm.isAvailable = false;
+    dayForm.timeRanges = [];
   });
-  showSnackbar('All days set to fully unavailable', 'info');
+  showSnackbar('All days set to unavailable', 'info');
 };
 
 // Add and remove time range functions
@@ -476,8 +454,8 @@ onMounted(async () => {
     <!-- Header Section -->
     <div class="page-header">
       <div class="header-content">
-        <h1 class="page-title">My Unavailability</h1>
-        <p class="page-subtitle">Set your weekly unavailable hours for scheduling</p>
+        <h1 class="page-title">My Availability</h1>
+        <p class="page-subtitle">Set your weekly available hours for scheduling</p>
       </div>
       <v-btn 
         color="#2c3e50"
@@ -487,8 +465,8 @@ onMounted(async () => {
         size="large"
         rounded="lg"
       >
-        <v-icon class="mr-2">mdi-clock-off</v-icon>
-        Save Unavailability
+        <v-icon class="mr-2">mdi-clock-check</v-icon>
+        Save Availability
       </v-btn>
     </div>
 
@@ -496,13 +474,13 @@ onMounted(async () => {
     <v-card class="weekly-summary-card" elevation="0" rounded="lg">
       <v-card-text class="pa-6">
         <div class="d-flex align-center">
-          <v-icon class="mr-3" size="20" color="#6c757d">mdi-calendar-remove</v-icon>
+          <v-icon class="mr-3" size="20" color="#6c757d">mdi-calendar-check</v-icon>
           <h3 class="summary-title">Weekly Summary</h3>
         </div>
-        <p class="summary-subtitle">Your total unavailable hours per week</p>
+        <p class="summary-subtitle">Your total available hours per week</p>
         <div class="hours-display">
-          <span class="hours-number">{{ Math.round(totalUnavailableHours * 10) / 10 }}</span>
-          <span class="hours-label">hours unavailable per week</span>
+          <span class="hours-number">{{ totalAvailableHours }}</span>
+          <span class="hours-label">hours available per week</span>
         </div>
       </v-card-text>
     </v-card>
@@ -521,8 +499,8 @@ onMounted(async () => {
           
           <div class="day-status">
             <v-chip
-              :color="(!dayForm.isUnavailable || dayForm.timeRanges.length === 0) ? '#e8f5e8' : '#ffe6e6'"
-              :text-color="(!dayForm.isUnavailable || dayForm.timeRanges.length === 0) ? '#2d5016' : '#8b0000'"
+              :color="dayForm.isAvailable ? '#e8f5e8' : '#ffe6e6'"
+              :text-color="dayForm.isAvailable ? '#2d5016' : '#8b0000'"
               size="small"
               class="status-chip"
             >
@@ -532,15 +510,26 @@ onMounted(async () => {
           
           <div class="day-actions">
             <v-btn
-              v-if="!dayForm.isUnavailable || dayForm.timeRanges.length === 0"
-              color="#dc3545"
+              v-if="!dayForm.isAvailable"
+              color="#28a745"
               variant="contained"
               size="small"
               rounded="lg"
-              @click="dayForm.isUnavailable = true; dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }]; toggleTimeInputs(dayIndex)"
+              @click="dayForm.isAvailable = true; dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }]; toggleTimeInputs(dayIndex)"
               class="action-btn"
             >
-              Add Unavailable Times
+              Add Available Times
+            </v-btn>
+            <v-btn
+              v-else-if="dayForm.timeRanges.length === 0"
+              color="#007bff"
+              variant="outlined"
+              size="small"
+              rounded="lg"
+              @click="dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }]; toggleTimeInputs(dayIndex)"
+              class="action-btn"
+            >
+              Set Specific Hours
             </v-btn>
             <v-btn
               v-else
@@ -559,7 +548,7 @@ onMounted(async () => {
 
         <!-- Expandable Time Input Section -->
         <v-expand-transition>
-          <div v-show="showTimeInputs[dayIndex] && dayForm.isUnavailable" class="time-inputs-section">
+          <div v-show="showTimeInputs[dayIndex] && dayForm.isAvailable && (dayForm.timeRanges.length > 0 || showTimeInputs[dayIndex])" class="time-inputs-section">
             <div class="time-ranges-container">
               <div 
                 v-for="(range, rangeIndex) in dayForm.timeRanges" 
@@ -630,10 +619,19 @@ onMounted(async () => {
                   variant="outlined"
                   size="small"
                   color="#28a745"
-                  @click="dayForm.isUnavailable = false; dayForm.timeRanges = []; showTimeInputs[dayIndex] = false"
+                  @click="dayForm.timeRanges = []; showTimeInputs[dayIndex] = false"
                   class="mr-2"
                 >
-                  Mark Fully Available
+                  Set 24/7 Available
+                </v-btn>
+                <v-btn
+                  variant="outlined"
+                  size="small"
+                  color="#dc3545"
+                  @click="dayForm.isAvailable = false; dayForm.timeRanges = []; showTimeInputs[dayIndex] = false"
+                  class="mr-2"
+                >
+                  Mark Unavailable
                 </v-btn>
                 <v-btn
                   variant="contained"
@@ -649,11 +647,6 @@ onMounted(async () => {
         </v-expand-transition>
       </div>
     </div>
-
-    <!-- Loading Overlay -->
-    <v-overlay v-model="loading" class="align-center justify-center">
-      <v-progress-circular color="#2c3e50" size="64" indeterminate></v-progress-circular>
-    </v-overlay>
 
     <!-- Success/Error Snackbar -->
     <v-snackbar
@@ -681,19 +674,41 @@ onMounted(async () => {
 
 <style scoped>
 .availability-page {
-  max-width: 800px;
+  width: 100%;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 2rem 1rem;
-  background-color: #f8f9fa;
+  padding: 2rem;
+  background: #f8f9fa;
   min-height: 100vh;
+  contain: layout style;
+}
+
+@media (max-width: 768px) {
+  .availability-page {
+    padding: 1rem;
+  }
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 2rem;
+  margin-bottom: 3rem;
   gap: 2rem;
+  background: white;
+  padding: 2rem;
+  border-radius: 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e9ecef;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1.5rem;
+    text-align: center;
+  }
 }
 
 .header-content {
@@ -701,15 +716,21 @@ onMounted(async () => {
 }
 
 .page-title {
-  font-size: 2rem;
-  font-weight: 600;
-  color: #212529;
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #2c3e50;
   margin: 0 0 0.5rem 0;
   line-height: 1.2;
 }
 
+@media (max-width: 768px) {
+  .page-title {
+    font-size: 2rem;
+  }
+}
+
 .page-subtitle {
-  font-size: 1rem;
+  font-size: 1.1rem;
   color: #6c757d;
   margin: 0;
   font-weight: 400;
@@ -720,84 +741,269 @@ onMounted(async () => {
   color: white !important;
   font-weight: 600;
   text-transform: none;
-  box-shadow: none;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  padding: 1rem 2rem !important;
+  will-change: transform;
 }
 
 .save-btn:hover {
   background-color: #1a252f !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(44, 62, 80, 0.3);
 }
 
 .weekly-summary-card {
-  background-color: white !important;
+  background: white !important;
   border: 1px solid #e9ecef;
-  margin-bottom: 1.5rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .summary-title {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #495057;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #2c3e50;
   margin: 0;
 }
 
 .summary-subtitle {
-  font-size: 0.875rem;
+  font-size: 1rem;
   color: #6c757d;
-  margin: 0.25rem 0 1rem 0;
+  margin: 0.5rem 0 1.5rem 0;
 }
 
 .hours-display {
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  background: #e8f5e8;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  border: 2px solid #c3e6cb;
 }
 
 .hours-number {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #2c3e50;
+  font-size: 3rem;
+  font-weight: 800;
+  color: #28a745;
   line-height: 1;
 }
 
 .hours-label {
-  font-size: 0.875rem;
-  color: #6c757d;
-  font-weight: 500;
+  font-size: 1rem;
+  color: #155724;
+  font-weight: 600;
 }
 
 .days-container {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.day-item {
-  background-color: white;
-  border: 1px solid #e9ecef;
-  border-bottom: none;
-}
-
-.day-item:first-child {
-  border-top-left-radius: 0.5rem;
-  border-top-right-radius: 0.5rem;
-}
-
-.day-item:last-child {
-  border-bottom: 1px solid #e9ecef;
-  border-bottom-left-radius: 0.5rem;
-  border-bottom-right-radius: 0.5rem;
-}
-
-.day-row {
-  display: flex;
-  align-items: center;
-  padding: 1.25rem 1.5rem;
+  display: grid;
   gap: 1rem;
 }
 
-.day-info {
-  flex: 0 0 120px;
+.day-item {
+  background: white;
+  border: 1px solid #e9ecef;
+  border-radius: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+  will-change: transform;
 }
+
+.day-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: #3498db;
+}
+
+.day-row {
+  display: grid;
+  grid-template-columns: 150px 1fr auto;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  gap: 2rem;
+  background: transparent;
+}
+
+@media (max-width: 768px) {
+  .day-row {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    text-align: center;
+  }
+}
+
+.day-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.day-name {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #2c3e50;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.day-status {
+  display: flex;
+  justify-content: center;
+}
+
+.status-chip {
+  font-weight: 600;
+  font-size: 0.9rem !important;
+  padding: 0.5rem 1rem !important;
+  border-radius: 1.5rem !important;
+}
+
+.day-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+@media (max-width: 768px) {
+  .day-actions {
+    justify-content: center;
+  }
+}
+
+.action-btn {
+  font-weight: 600 !important;
+  text-transform: none !important;
+  border-radius: 0.75rem !important;
+  padding: 0.75rem 1.5rem !important;
+  transition: transform 0.2s ease !important;
+  will-change: transform;
+}
+
+.action-btn:hover {
+  transform: translateY(-1px) !important;
+}
+
+.edit-btn {
+  font-weight: 600 !important;
+  text-transform: none !important;
+  border-radius: 0.75rem !important;
+  border: 2px solid #dee2e6 !important;
+  transition: border-color 0.2s ease, background-color 0.2s ease !important;
+}
+
+.edit-btn:hover {
+  border-color: #3498db !important;
+  background-color: rgba(52, 152, 219, 0.1) !important;
+}
+
+.time-inputs-section {
+  background: #f8f9fa;
+  border-top: 1px solid #dee2e6;
+  padding: 2rem;
+}
+
+.time-ranges-container {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.time-range-input {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  border: 1px solid #dee2e6;
+}
+
+.time-input-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .time-input-row {
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
+
+.time-selects {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+}
+
+.time-select {
+  flex: 1;
+  max-width: 150px;
+}
+
+.time-separator {
+  font-weight: 600;
+  color: #6c757d;
+  font-size: 1rem;
+  padding: 0 0.5rem;
+}
+
+.range-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.input-actions {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(222, 226, 230, 0.5);
+}
+
+@media (max-width: 768px) {
+  .input-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.validation-error {
+  color: #dc3545;
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #f8d7da;
+  border-radius: 0.5rem;
+  border: 1px solid #f5c6cb;
+}
+
+.access-denied {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  text-align: center;
+  color: #6c757d;
+  gap: 1.5rem;
+}
+
+.access-denied h2 {
+  font-size: 2rem;
+  color: #495057;
+  margin: 0;
+}
+
+.access-denied p {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+/* Optimized styles */
 
 .day-name {
   font-size: 1rem;
