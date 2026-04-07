@@ -702,6 +702,8 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <ManagerOpenShifts :area-id="area.area_id" />
   </v-container>
 </template>
 
@@ -718,6 +720,7 @@ import ShiftServices from "../services/shiftServices";
 import TaskServices from "../services/taskServices";
 import TaskListItemServices from "../services/taskListItemServices";
 import TaskListItemStatusServices from "../services/taskListItemStatusServices";
+import ManagerOpenShifts from "../components/ManagerOpenShifts.vue";
 import Utils from "../config/utils";
 
 const SCHEDULE_TYPE_OPTIONS = [
@@ -728,7 +731,7 @@ const SCHEDULE_TYPE_OPTIONS = [
 
 export default {
   name: "ManagerDashboard",
-  components: { VueCal },
+  components: { VueCal, ManagerOpenShifts },
   setup() {
     const user = ref(Utils.getStore("user"));
     const area = ref({ area_id: null, area_name: "" });

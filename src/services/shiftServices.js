@@ -13,11 +13,21 @@ export default {
     getOpenForUser(userId) {
         return apiClient.get(`shifts/open/${userId}`);
     },
+    getOpenForManager(userId) {
+        return apiClient.get(`shifts/open-manager/${userId}`);
+    },
+    /** Claim an open shift instantly (no approval). */
+    claim(shiftId) {
+        return apiClient.post(`shifts/${shiftId}/claim`);
+    },
     create(data) {
         return apiClient.post("shifts", data);
     },
     update(id, data) {
         return apiClient.put(`shifts/${id}`, data);
+    },
+    patch(id, data) {
+        return apiClient.patch(`shifts/${id}`, data);
     },
     delete(id) {
         return apiClient.delete(`shifts/${id}`);
