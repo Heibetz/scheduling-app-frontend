@@ -15,6 +15,9 @@ export default {
     update(id, data) {
         return apiClient.put(`schedules/${id}`, data);
     },
+    publish(id) {
+        return apiClient.put(`schedules/${id}/publish`);
+    },
     delete(id) {
         return apiClient.delete(`schedules/${id}`);
     },
