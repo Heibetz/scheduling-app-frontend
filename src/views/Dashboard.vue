@@ -61,42 +61,86 @@
 
     <OpenShifts ref="openShiftsRef" @shift-claimed="loadUserShifts" />
 
-    <!-- Shift details popover -->
-    <v-dialog v-model="shiftDetailsOpen" max-width="520">
-      <v-card>
-        <v-card-title class="text-h6">Shift details</v-card-title>
-        <v-card-text v-if="selectedShift">
-          <ul class="text-body-2" style="padding-left: 1.25rem; margin: 0;">
-            <li><strong>Date:</strong> {{ formatDay(selectedShift.shift_date) }}, {{ formatDate(selectedShift.shift_date) }}</li>
-            <li><strong>Time:</strong> {{ formatTimeRange(selectedShift.start_time, selectedShift.end_time) }}</li>
-            <li><strong>Department:</strong> {{ selectedShift.area_name || '—' }}</li>
-            <li><strong>Position:</strong> {{ selectedShift.position_name || '—' }}</li>
-          </ul>
-        </v-card-text>
-        <v-card-actions class="px-4 pb-4" style="gap: 8px;">
-          <v-spacer />
-          <v-btn variant="outlined" color="grey-darken-2" class="text-none" @click="shiftDetailsOpen=false">Close</v-btn>
-          <v-btn
-            v-if="selectedShift && !selectedShift.is_open"
-            color="warning"
-            variant="flat"
-            class="text-none"
-            @click="openOfferConfirm"
-          >
-            Offer shift
-          </v-btn>
-          <v-btn
-            v-else-if="selectedShift && selectedShift.is_open"
-            color="warning"
-            variant="tonal"
-            class="text-none"
-            @click="openCancelOfferConfirm"
-          >
-            Cancel offer
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- Shift details side panel -->
+    <v-navigation-drawer
+      v-model="shiftDetailsOpen"
+      location="right"
+      temporary
+      width="420"
+      class="shift-drawer"
+    >
+      <div class="shift-drawer__header">
+        <div>
+          <div class="shift-drawer__title">Shift details</div>
+          <div v-if="selectedShift" class="shift-drawer__subtitle">
+            {{ selectedShift.area_name || '—' }} · {{ selectedShift.position_name || '—' }}
+          </div>
+          <div v-if="selectedShift?.is_open" class="shift-drawer__badges">
+            <span class="shift-drawer__badge shift-drawer__badge--offered">Offered</span>
+          </div>
+        </div>
+        <v-btn icon variant="text" @click="shiftDetailsOpen = false">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+      </div>
+
+      <v-divider />
+
+      <div class="shift-drawer__body" v-if="selectedShift">
+        <div class="shift-drawer__section">
+          <div class="shift-drawer__sectionTitle">Details</div>
+          <div class="shift-drawer__row">
+            <span class="label">Date</span>
+            <span class="value">{{ formatDay(selectedShift.shift_date) }}, {{ formatDate(selectedShift.shift_date) }}</span>
+          </div>
+          <div class="shift-drawer__row">
+            <span class="label">Time</span>
+            <span class="value">{{ formatTimeRange(selectedShift.start_time, selectedShift.end_time) }}</span>
+          </div>
+          <div class="shift-drawer__row">
+            <span class="label">Department</span>
+            <span class="value">{{ selectedShift.area_name || '—' }}</span>
+          </div>
+          <div class="shift-drawer__row">
+            <span class="label">Position</span>
+            <span class="value">{{ selectedShift.position_name || '—' }}</span>
+          </div>
+        </div>
+
+        <!-- Placeholder for future teammate additions (tasklists, notes, etc.) -->
+        <div class="shift-drawer__section">
+          <div class="shift-drawer__sectionTitle">More</div>
+          <div class="shift-drawer__placeholder">
+            Additional shift tools will appear here.
+          </div>
+        </div>
+      </div>
+
+      <v-spacer />
+
+      <div class="shift-drawer__actions">
+        <v-btn
+          v-if="selectedShift && !selectedShift.is_open"
+          color="warning"
+          variant="flat"
+          class="text-none"
+          block
+          @click="openOfferConfirm"
+        >
+          Offer shift
+        </v-btn>
+        <v-btn
+          v-else-if="selectedShift && selectedShift.is_open"
+          color="warning"
+          variant="tonal"
+          class="text-none"
+          block
+          @click="openCancelOfferConfirm"
+        >
+          Cancel offer
+        </v-btn>
+      </div>
+    </v-navigation-drawer>
 
     <v-dialog v-model="offerConfirmOpen" max-width="520" persistent>
       <v-card>
@@ -818,6 +862,106 @@ function retryLoadData() {
 .stat-detail {
   font-size: 0.875rem;
   color: #94a3b8;
+}
+
+/* Shift drawer */
+.shift-drawer :deep(.v-navigation-drawer__content) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.shift-drawer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+}
+
+.shift-drawer__title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1a202c;
+}
+
+.shift-drawer__subtitle {
+  margin-top: 2px;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.shift-drawer__badges {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shift-drawer__badge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.shift-drawer__badge--offered {
+  background: #FAEEDA;
+  color: #633806;
+}
+
+.shift-drawer__body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.shift-drawer__section {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.shift-drawer__sectionTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.shift-drawer__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.shift-drawer__row .label {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.shift-drawer__row .value {
+  font-size: 0.875rem;
+  color: #1a202c;
+  font-weight: 600;
+  text-align: right;
+}
+
+.shift-drawer__placeholder {
+  font-size: 0.875rem;
+  color: #94a3b8;
+}
+
+.shift-drawer__actions {
+  padding: 16px;
+  border-top: 1px solid #e2e8f0;
 }
 
 /* Responsive Design */
