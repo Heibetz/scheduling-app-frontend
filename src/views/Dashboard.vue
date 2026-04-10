@@ -14,6 +14,7 @@
           :selected-date="today"
           :active-view="calendarView"
           :disable-views="['years', 'year', 'day']"
+          :on-event-click="handleEventClick"
           :editable-events="{ title: false, drag: false, resize: false, delete: false, create: false }"
           :time-from="300" 
           :time-to="1380"
@@ -58,7 +59,122 @@
       </v-col>
     </v-row>
 
-    <OpenShifts ref="openShiftsRef" />
+    <OpenShifts ref="openShiftsRef" @shift-claimed="loadUserShifts" />
+
+    <!-- Shift details side panel -->
+    <v-navigation-drawer
+      v-model="shiftDetailsOpen"
+      location="right"
+      temporary
+      width="420"
+      class="shift-drawer"
+    >
+      <div class="shift-drawer__header">
+        <div>
+          <div class="shift-drawer__title">Shift details</div>
+          <div v-if="selectedShift" class="shift-drawer__subtitle">
+            {{ selectedShift.area_name || '—' }} · {{ selectedShift.position_name || '—' }}
+          </div>
+          <div v-if="selectedShift?.is_open" class="shift-drawer__badges">
+            <span class="shift-drawer__badge shift-drawer__badge--offered">Offered</span>
+          </div>
+        </div>
+        <v-btn icon variant="text" @click="shiftDetailsOpen = false">
+          <v-icon>mdi-close</v-icon>
+        </v-btn>
+      </div>
+
+      <v-divider />
+
+      <div class="shift-drawer__body" v-if="selectedShift">
+        <div class="shift-drawer__section">
+          <div class="shift-drawer__sectionTitle">Details</div>
+          <div class="shift-drawer__row">
+            <span class="label">Date</span>
+            <span class="value">{{ formatDay(selectedShift.shift_date) }}, {{ formatDate(selectedShift.shift_date) }}</span>
+          </div>
+          <div class="shift-drawer__row">
+            <span class="label">Time</span>
+            <span class="value">{{ formatTimeRange(selectedShift.start_time, selectedShift.end_time) }}</span>
+          </div>
+          <div class="shift-drawer__row">
+            <span class="label">Department</span>
+            <span class="value">{{ selectedShift.area_name || '—' }}</span>
+          </div>
+          <div class="shift-drawer__row">
+            <span class="label">Position</span>
+            <span class="value">{{ selectedShift.position_name || '—' }}</span>
+          </div>
+        </div>
+
+        <!-- Placeholder for future teammate additions (tasklists, notes, etc.) -->
+        <div class="shift-drawer__section">
+          <div class="shift-drawer__sectionTitle">More</div>
+          <div class="shift-drawer__placeholder">
+            Additional shift tools will appear here.
+          </div>
+        </div>
+      </div>
+
+      <v-spacer />
+
+      <div class="shift-drawer__actions">
+        <v-btn
+          v-if="selectedShift && !selectedShift.is_open"
+          color="warning"
+          variant="flat"
+          class="text-none"
+          block
+          @click="openOfferConfirm"
+        >
+          Offer shift
+        </v-btn>
+        <v-btn
+          v-else-if="selectedShift && selectedShift.is_open"
+          color="warning"
+          variant="tonal"
+          class="text-none"
+          block
+          @click="openCancelOfferConfirm"
+        >
+          Cancel offer
+        </v-btn>
+      </div>
+    </v-navigation-drawer>
+
+    <v-dialog v-model="offerConfirmOpen" max-width="520" persistent>
+      <v-card>
+        <v-card-title class="text-h6">{{ offerConfirmMode === 'offer' ? 'Offer this shift?' : 'Cancel offer?' }}</v-card-title>
+        <v-card-text>
+          <p class="mb-2" v-if="offerConfirmMode === 'offer'">
+            Your shift will stay on your schedule until someone else claims it.
+          </p>
+          <p class="mb-2" v-else>
+            This shift will no longer be visible on the open shifts board.
+          </p>
+          <v-alert v-if="offerError" type="error" variant="tonal" density="compact" class="mt-3">
+            {{ offerError }}
+          </v-alert>
+        </v-card-text>
+        <v-card-actions class="px-4 pb-4" style="gap: 8px;">
+          <v-spacer />
+          <v-btn variant="outlined" color="grey-darken-2" class="text-none" @click="closeOfferConfirm">Cancel</v-btn>
+          <v-btn
+            color="warning"
+            variant="flat"
+            class="text-none"
+            :loading="offerSubmitting"
+            @click="confirmOfferChange"
+          >
+            Yes, {{ offerConfirmMode === 'offer' ? 'offer' : 'cancel offer' }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-snackbar v-model="offerSuccessOpen" color="success" timeout="2500">
+      {{ offerSuccessMessage }}
+    </v-snackbar>
   </v-container>
 </template>
 
@@ -80,6 +196,16 @@ const shifts = ref([])
 const userArea = ref(null)
 const calendarView = ref('week')
 const openShiftsRef = ref(null)
+
+// Shift offering UI state
+const shiftDetailsOpen = ref(false)
+const selectedShift = ref(null)
+const offerConfirmOpen = ref(false)
+const offerConfirmMode = ref('offer') // 'offer' | 'cancel'
+const offerSubmitting = ref(false)
+const offerError = ref('')
+const offerSuccessOpen = ref(false)
+const offerSuccessMessage = ref('')
 
 const today = new Date()
 
@@ -149,7 +275,8 @@ const calendarEvents = computed(() => {
       return null
     }
     
-    const eventClass = shift.status === 'pending' ? 'shift-pending' : 'shift-confirmed'
+    const isOffered = !!shift.is_open
+    const eventClass = isOffered ? 'shift-offered' : (shift.status === 'pending' ? 'shift-pending' : 'shift-confirmed')
     
     return {
       start: startDateTime,
@@ -158,11 +285,59 @@ const calendarEvents = computed(() => {
       content: shift.area_name || '',
       class: eventClass,
       shift_id: shift.shift_id,
+      is_open: shift.is_open,
     }
   }).filter(Boolean) // Remove any null entries
   
   return events
 })
+
+function handleEventClick(event) {
+  const shiftId = event?.shift_id
+  if (!shiftId) return
+  const found = shifts.value.find(s => Number(s.shift_id) === Number(shiftId))
+  if (!found) return
+  selectedShift.value = found
+  shiftDetailsOpen.value = true
+}
+
+function openOfferConfirm() {
+  offerError.value = ''
+  offerConfirmMode.value = 'offer'
+  offerConfirmOpen.value = true
+}
+
+function openCancelOfferConfirm() {
+  offerError.value = ''
+  offerConfirmMode.value = 'cancel'
+  offerConfirmOpen.value = true
+}
+
+function closeOfferConfirm() {
+  offerConfirmOpen.value = false
+  offerError.value = ''
+}
+
+async function confirmOfferChange() {
+  if (!selectedShift.value) return
+  offerSubmitting.value = true
+  offerError.value = ''
+  try {
+    const makeOpen = offerConfirmMode.value === 'offer'
+    await ShiftServices.patch(selectedShift.value.shift_id, { is_open: makeOpen ? 1 : 0 })
+    // Refresh shifts & open board so UI stays consistent
+    await loadUserShifts()
+    openShiftsRef.value?.loadOpenShifts?.()
+    offerSuccessMessage.value = makeOpen ? 'Shift offered! It is now visible to other workers.' : 'Offer cancelled.'
+    offerSuccessOpen.value = true
+    closeOfferConfirm()
+    shiftDetailsOpen.value = false
+  } catch (e) {
+    offerError.value = e.response?.data?.message || e.message || 'Could not update offer status'
+  } finally {
+    offerSubmitting.value = false
+  }
+}
 
 const stats = computed(() => {
   const now = new Date()
@@ -627,6 +802,20 @@ function retryLoadData() {
   transform: translateY(-1px);
 }
 
+/* Offered shift styling */
+::deep(.vuecal__event.shift-offered) {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  border: none;
+  border-radius: 6px;
+  color: #1f2937;
+  border-left: 3px solid #d97706;
+}
+
+::deep(.vuecal__event.shift-offered:hover) {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  transform: translateY(-1px);
+}
+
 /* Empty and Loading States */
 .empty-calendar,
 .loading-calendar {
@@ -673,6 +862,106 @@ function retryLoadData() {
 .stat-detail {
   font-size: 0.875rem;
   color: #94a3b8;
+}
+
+/* Shift drawer */
+.shift-drawer :deep(.v-navigation-drawer__content) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.shift-drawer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+}
+
+.shift-drawer__title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1a202c;
+}
+
+.shift-drawer__subtitle {
+  margin-top: 2px;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.shift-drawer__badges {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shift-drawer__badge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.shift-drawer__badge--offered {
+  background: #FAEEDA;
+  color: #633806;
+}
+
+.shift-drawer__body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.shift-drawer__section {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.shift-drawer__sectionTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.shift-drawer__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.shift-drawer__row .label {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.shift-drawer__row .value {
+  font-size: 0.875rem;
+  color: #1a202c;
+  font-weight: 600;
+  text-align: right;
+}
+
+.shift-drawer__placeholder {
+  font-size: 0.875rem;
+  color: #94a3b8;
+}
+
+.shift-drawer__actions {
+  padding: 16px;
+  border-top: 1px solid #e2e8f0;
 }
 
 /* Responsive Design */
