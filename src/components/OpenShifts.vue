@@ -1,6 +1,9 @@
 <template>
-  <v-card class="shifts-container mb-8" elevation="0">
-    <h2 class="mb-2">Open Shifts</h2>
+  <div
+    class="shifts-container"
+    :class="{ 'mb-8': !embedded, 'shifts-container--embedded': embedded }"
+  >
+    <h2 v-if="!hideHeading" class="mb-2">Open Shifts</h2>
     <p v-if="!loading" class="open-shifts-count mb-4">
       {{ availabilitySentence }}
     </p>
@@ -127,13 +130,21 @@
     <v-snackbar v-model="successOpen" color="success" timeout="2500">
       Shift claimed! It has been added to your schedule
     </v-snackbar>
-  </v-card>
+  </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import Utils from '../config/utils'
 import ShiftServices from '../services/shiftServices'
+import { refreshWorkerAttention } from '../utils/workerAttention.js'
+
+const props = defineProps({
+  /** When true, used inside Open Shifts page: no outer card, no duplicate heading. */
+  embedded: { type: Boolean, default: false },
+  /** Hide the "Open Shifts" h2 (e.g. when parent supplies the section title). */
+  hideHeading: { type: Boolean, default: false },
+})
 
 const emit = defineEmits(['shift-claimed'])
 
@@ -281,6 +292,7 @@ async function confirmClaim() {
     shifts.value = shifts.value.filter((s) => Number(s.shift_id) !== Number(shift.shift_id))
     successOpen.value = true
     emit('shift-claimed')
+    refreshWorkerAttention()
     closeClaimModal()
   } catch (e) {
     if (e.response?.status === 409) {
@@ -335,6 +347,12 @@ defineExpose({ loadOpenShifts })
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 24px;
+}
+
+.shifts-container--embedded {
+  border: none;
+  padding: 0;
+  background: transparent;
 }
 
 .shifts-container h2 {

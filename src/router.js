@@ -14,6 +14,7 @@ import Profile from "./views/Profile.vue";
 import Areas from "./views/Areas.vue";
 import Users from "./views/Users.vue";
 import Availability from "./views/Availability.vue";
+import OpenShiftsPage from "./views/OpenShiftsPage.vue";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -82,6 +83,11 @@ const router = createRouter({
       path: "/availability",
       name: "availability",
       component: Availability,
+    },
+    {
+      path: "/open-shifts",
+      name: "open-shifts",
+      component: OpenShiftsPage,
     },
     {
       path: "/manager-dashboard",

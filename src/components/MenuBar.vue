@@ -8,7 +8,7 @@ import NotificationServices from "../services/notificationServices";
 import AreaServices from "../services/areaServices";
 import PositionServices from "../services/positionServices";
 import PositionUserServices from "../services/positionUserServices";
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 
 const notifications = ref([]);
 const showNotifications = ref(false);
@@ -170,6 +170,17 @@ watch(showNotifications, (val) => {
         >
           <v-icon class="nav-icon">mdi-view-dashboard</v-icon>
           Dashboard
+        </v-btn>
+
+        <v-btn
+          v-if="!user.is_super_admin"
+          :to="{ name: 'open-shifts' }"
+          class="nav-btn"
+          variant="text"
+          rounded="lg"
+        >
+          <v-icon class="nav-icon">mdi-briefcase-outline</v-icon>
+          Open shifts
         </v-btn>
         
         <v-btn 
