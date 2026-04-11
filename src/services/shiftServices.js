@@ -13,6 +13,10 @@ export default {
     getOpenForUser(userId) {
         return apiClient.get(`shifts/open/${userId}`);
     },
+    /** Combined counts for worker nav badge (open shifts + pending trade requests). */
+    getAttentionSummary(userId) {
+        return apiClient.get(`shifts/attention-summary/${userId}`);
+    },
     getOpenForManager(userId) {
         return apiClient.get(`shifts/open-manager/${userId}`);
     },

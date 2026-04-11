@@ -59,8 +59,6 @@
       </v-col>
     </v-row>
 
-    <OpenShifts ref="openShiftsRef" @shift-claimed="loadUserShifts" />
-
     <!-- Shift details side panel -->
     <v-navigation-drawer
       v-model="shiftDetailsOpen"
@@ -186,8 +184,6 @@ import Utils from '../config/utils'
 import ShiftServices from '../services/shiftServices'
 import PositionServices from '../services/positionServices'
 import AreaServices from '../services/areaServices'
-import OpenShifts from '../components/OpenShifts.vue'
-
 // State
 const user = ref(Utils.getStore('user'))
 const loading = ref(true)
@@ -195,8 +191,6 @@ const loadingMessage = ref('Initializing...')
 const shifts = ref([])
 const userArea = ref(null)
 const calendarView = ref('week')
-const openShiftsRef = ref(null)
-
 // Shift offering UI state
 const shiftDetailsOpen = ref(false)
 const selectedShift = ref(null)
@@ -327,7 +321,6 @@ async function confirmOfferChange() {
     await ShiftServices.patch(selectedShift.value.shift_id, { is_open: makeOpen ? 1 : 0 })
     // Refresh shifts & open board so UI stays consistent
     await loadUserShifts()
-    openShiftsRef.value?.loadOpenShifts?.()
     offerSuccessMessage.value = makeOpen ? 'Shift offered! It is now visible to other workers.' : 'Offer cancelled.'
     offerSuccessOpen.value = true
     closeOfferConfirm()
