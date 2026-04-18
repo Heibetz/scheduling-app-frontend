@@ -232,14 +232,13 @@
                 <td>{{ pos.is_manager ? 'Yes' : 'No' }}</td>
                 <td class="text-center">
                   <v-btn
-                    v-if="!pos.is_manager"
                     icon
                     size="small"
                     variant="text"
-                    color="error"
-                    @click="confirmDeletePosition(pos)"
+                    color="blue"
+                    @click="openEditPositionDialog(pos)"
                   >
-                    <v-icon size="20">mdi-delete</v-icon>
+                    <v-icon size="20">mdi-pencil</v-icon>
                   </v-btn>
                 </td>
               </tr>
@@ -408,7 +407,7 @@
 
           <v-select
             v-model="shiftForm.position_id"
-            :items="areaPositions"
+            :items="filteredShiftPositions"
             item-title="position_name"
             item-value="position_id"
             label="Position"
@@ -561,18 +560,24 @@
       </v-card>
     </v-dialog>
 
-    <!-- Delete Position Confirmation -->
-    <v-dialog v-model="showDeletePositionDialog" max-width="400px">
+    <!-- Edit Position Name -->
+    <v-dialog v-model="showEditPositionDialog" max-width="420px">
       <v-card>
-        <v-card-title class="text-h6 pa-4">Delete Position</v-card-title>
+        <v-card-title class="text-h6 pa-4">Edit Position Name</v-card-title>
         <v-card-text>
-          Are you sure you want to delete <strong>{{ deletingPosition?.position_name }}</strong>?
-          This will also remove all worker assignments for this position.
+          <v-text-field
+            v-model="editPositionName"
+            label="Position Name"
+            :rules="[v => !!v || 'Position name is required']"
+            autofocus
+            @keyup.enter="saveEditPosition"
+          />
+          <v-alert v-if="editPositionError" type="error" density="compact" class="mt-2">{{ editPositionError }}</v-alert>
         </v-card-text>
         <v-card-actions class="pa-4">
           <v-spacer />
-          <v-btn variant="text" @click="showDeletePositionDialog = false">Cancel</v-btn>
-          <v-btn color="error" :loading="deletingPositionLoading" @click="deletePosition">Delete</v-btn>
+          <v-btn variant="text" @click="showEditPositionDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="savingEditPosition" @click="saveEditPosition">Save</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -1040,9 +1045,44 @@ export default {
       return position ? position.position_name : "Shift";
     };
 
-    const workerOptions = computed(() =>
-      workers.value.map((w) => ({ title: `${w.fName} ${w.lName}`, value: w.user_id }))
-    );
+    const workerOptions = computed(() => {
+      const posId = shiftForm.value?.position_id;
+      let filtered = workers.value;
+      if (posId) {
+        const userIdsForPosition = allPositionUsers.value
+          .filter((pu) => Number(pu.position_id) === Number(posId))
+          .map((pu) => Number(pu.user_id));
+        filtered = workers.value.filter((w) => userIdsForPosition.includes(Number(w.user_id)));
+      }
+      return filtered.map((w) => ({ title: `${w.fName} ${w.lName}`, value: w.user_id }));
+    });
+
+    const filteredShiftPositions = computed(() => {
+      const userId = shiftForm.value?.user_id;
+      if (!userId) return areaPositions.value;
+      const posIdsForUser = allPositionUsers.value
+        .filter((pu) => Number(pu.user_id) === Number(userId))
+        .map((pu) => Number(pu.position_id));
+      return areaPositions.value.filter((p) => posIdsForUser.includes(Number(p.position_id)));
+    });
+
+    // Clear worker if they don't hold the newly selected position
+    watch(() => shiftForm.value?.position_id, (newPosId) => {
+      if (!newPosId || !shiftForm.value?.user_id) return;
+      const valid = allPositionUsers.value.some(
+        (pu) => Number(pu.position_id) === Number(newPosId) && Number(pu.user_id) === Number(shiftForm.value.user_id)
+      );
+      if (!valid) shiftForm.value.user_id = null;
+    });
+
+    // Clear position if the newly selected worker doesn't hold it
+    watch(() => shiftForm.value?.user_id, (newUserId) => {
+      if (!newUserId || !shiftForm.value?.position_id) return;
+      const valid = allPositionUsers.value.some(
+        (pu) => Number(pu.user_id) === Number(newUserId) && Number(pu.position_id) === Number(shiftForm.value.position_id)
+      );
+      if (!valid) shiftForm.value.position_id = null;
+    });
 
     const SCHEDULE_COLORS = [
       'schedule-color-0',
@@ -1591,29 +1631,38 @@ export default {
       return allUsers.value.filter((u) => combined.has(Number(u.user_id)));
     });
 
-    const showDeletePositionDialog = ref(false);
-    const deletingPosition = ref(null);
-    const deletingPositionLoading = ref(false);
+    const showEditPositionDialog = ref(false);
+    const editingPositionId = ref(null);
+    const editPositionName = ref("");
+    const savingEditPosition = ref(false);
+    const editPositionError = ref("");
 
-    const confirmDeletePosition = (pos) => {
-      deletingPosition.value = pos;
-      showDeletePositionDialog.value = true;
+    const openEditPositionDialog = (pos) => {
+      editingPositionId.value = pos.position_id;
+      editPositionName.value = pos.position_name;
+      editPositionError.value = "";
+      showEditPositionDialog.value = true;
     };
 
-    const deletePosition = async () => {
-      if (!deletingPosition.value) return;
-      deletingPositionLoading.value = true;
+    const saveEditPosition = async () => {
+      if (!editPositionName.value.trim()) {
+        editPositionError.value = "Position name is required.";
+        return;
+      }
+      savingEditPosition.value = true;
+      editPositionError.value = "";
       try {
-        await PositionServices.delete(deletingPosition.value.position_id);
-        showDeletePositionDialog.value = false;
-        deletingPosition.value = null;
+        await PositionServices.update(editingPositionId.value, {
+          position_name: editPositionName.value.trim(),
+        });
+        showEditPositionDialog.value = false;
         const puRes = await PositionUserServices.getAll();
         const allPosRes = await PositionServices.getAll();
         await fetchAreaWorkers(area.value.area_id, allPosRes.data, puRes.data);
       } catch (error) {
-        console.error("Error deleting position:", error);
+        editPositionError.value = error?.response?.data?.message || "Failed to update position.";
       } finally {
-        deletingPositionLoading.value = false;
+        savingEditPosition.value = false;
       }
     };
 
@@ -2086,6 +2135,7 @@ export default {
       goToNextWeek,
       calendarEditConfig,
       workerOptions,
+      filteredShiftPositions,
       showCreateScheduleDialog,
       scheduleForm,
       scheduleTypeOptions,
@@ -2123,11 +2173,12 @@ export default {
       positionError,
       openPositionDialog,
       savePosition,
-      showDeletePositionDialog,
-      deletingPosition,
-      deletingPositionLoading,
-      confirmDeletePosition,
-      deletePosition,
+      showEditPositionDialog,
+      editPositionName,
+      savingEditPosition,
+      editPositionError,
+      openEditPositionDialog,
+      saveEditPosition,
       // Area task lists
       showAreaTasksDialog,
       areaTasks,
