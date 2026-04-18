@@ -117,8 +117,9 @@
       <v-spacer />
 
       <div class="shift-drawer__actions">
+        <!-- Own shift that is NOT offered yet -->
         <v-btn
-          v-if="selectedShift && !selectedShift.is_open"
+          v-if="selectedShift && isMyShift && !selectedShift.is_open"
           color="warning"
           variant="flat"
           class="text-none"
@@ -127,8 +128,9 @@
         >
           Offer shift
         </v-btn>
+        <!-- Own shift that IS offered -->
         <v-btn
-          v-else-if="selectedShift && selectedShift.is_open"
+          v-else-if="selectedShift && isMyShift && selectedShift.is_open"
           color="warning"
           variant="tonal"
           class="text-none"
@@ -137,6 +139,25 @@
         >
           Cancel offer
         </v-btn>
+        <!-- Open shift from someone else that I can claim -->
+        <v-btn
+          v-else-if="selectedShift && !isMyShift && selectedShift.is_open && canClaimSelected"
+          color="primary"
+          variant="flat"
+          class="text-none"
+          block
+          @click="openClaimConfirm"
+        >
+          Claim shift
+        </v-btn>
+        <v-alert
+          v-else-if="selectedShift && !isMyShift && selectedShift.is_open && !canClaimSelected"
+          type="info"
+          variant="tonal"
+          density="compact"
+        >
+          You don't hold the required position to claim this shift.
+        </v-alert>
       </div>
     </v-navigation-drawer>
 
@@ -170,6 +191,33 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="claimConfirmOpen" max-width="520" persistent>
+      <v-card>
+        <v-card-title class="text-h6">Claim this shift?</v-card-title>
+        <v-card-text>
+          <p class="mb-2">
+            You will be assigned to this shift.
+          </p>
+          <v-alert v-if="offerError" type="error" variant="tonal" density="compact" class="mt-3">
+            {{ offerError }}
+          </v-alert>
+        </v-card-text>
+        <v-card-actions class="px-4 pb-4" style="gap: 8px;">
+          <v-spacer />
+          <v-btn variant="outlined" color="grey-darken-2" class="text-none" @click="closeClaimConfirm">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            class="text-none"
+            :loading="offerSubmitting"
+            @click="confirmClaim"
+          >
+            Yes, claim shift
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="offerSuccessOpen" color="success" timeout="2500">
       {{ offerSuccessMessage }}
     </v-snackbar>
@@ -183,25 +231,35 @@ import "vue-cal/dist/vuecal.css"
 import Utils from '../config/utils'
 import ShiftServices from '../services/shiftServices'
 import PositionServices from '../services/positionServices'
+import PositionUserServices from '../services/positionUserServices'
+import ScheduleServices from '../services/scheduleServices'
 import AreaServices from '../services/areaServices'
+import UserServices from '../services/userServices'
 // State
 const user = ref(Utils.getStore('user'))
 const loading = ref(true)
 const loadingMessage = ref('Initializing...')
-const shifts = ref([])
+const shifts = ref([]) // ALL shifts in user's area(s)
 const userArea = ref(null)
 const calendarView = ref('week')
+const userPositionIds = ref([]) // position_ids the current user holds
+const allUsersMap = ref({}) // user_id -> { fName, lName }
 // Shift offering UI state
 const shiftDetailsOpen = ref(false)
 const selectedShift = ref(null)
 const offerConfirmOpen = ref(false)
-const offerConfirmMode = ref('offer') // 'offer' | 'cancel'
+const offerConfirmMode = ref('offer') // 'offer' | 'cancel' | 'claim'
 const offerSubmitting = ref(false)
 const offerError = ref('')
 const offerSuccessOpen = ref(false)
 const offerSuccessMessage = ref('')
+const claimConfirmOpen = ref(false)
 
 const today = new Date()
+const currentUserId = computed(() => {
+  const u = user.value
+  return u ? Number(u.userId || u.user_id || u.id) : null
+})
 
 // Computed Properties
 const areaName = computed(() => {
@@ -227,30 +285,24 @@ const calendarEvents = computed(() => {
     return []
   }
   
+  const uid = currentUserId.value
+  
   const events = shifts.value.map(shift => {
-    // Extract shift data
     const shiftDate = shift.shift_date
     const startTime = shift.start_time
     const endTime = shift.end_time
     
-    if (!shiftDate || !startTime || !endTime) {
-      return null
-    }
+    if (!shiftDate || !startTime || !endTime) return null
     
-    // Normalize date format - handle both "YYYY-MM-DD" and ISO format
     let dateOnly
     if (shiftDate.includes('T')) {
-      // ISO format like "2026-03-25T00:00:00.000Z"
-      dateOnly = shiftDate.substring(0, 10) // Extract just "2026-03-25"
+      dateOnly = shiftDate.substring(0, 10)
     } else {
-      // Already in YYYY-MM-DD format
       dateOnly = shiftDate
     }
     
-    // Normalize time format to ensure consistent parsing
     const normalizeTime = (timeStr) => {
       if (!timeStr) return null
-      // Handle different time formats (HH:MM, HH:MM:SS)
       const timeParts = timeStr.split(':')
       const hours = timeParts[0].padStart(2, '0')
       const minutes = timeParts[1] ? timeParts[1].padStart(2, '0') : '00'
@@ -259,29 +311,40 @@ const calendarEvents = computed(() => {
     
     const normalizedStartTime = normalizeTime(startTime)
     const normalizedEndTime = normalizeTime(endTime)
-    
-    // Create proper Date objects with normalized date and time
     const startDateTime = new Date(`${dateOnly}T${normalizedStartTime}`)
     const endDateTime = new Date(`${dateOnly}T${normalizedEndTime}`)
     
-    // Validate the created dates
-    if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
-      return null
-    }
+    if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) return null
     
-    const isOffered = !!shift.is_open
-    const eventClass = isOffered ? 'shift-offered' : (shift.status === 'pending' ? 'shift-pending' : 'shift-confirmed')
+    // Determine shift type
+    const isOpen = !!shift.is_open
+    const isMine = Number(shift.user_id) === uid
+    let eventClass, title
+    
+    if (isOpen) {
+      eventClass = 'shift-open'
+      title = `OPEN - ${shift.position_name || 'Shift'}`
+    } else if (isMine) {
+      eventClass = 'shift-mine'
+      title = shift.position_name || 'Shift'
+    } else {
+      eventClass = 'shift-other'
+      const worker = allUsersMap.value[Number(shift.user_id)]
+      const workerName = worker ? `${worker.fName} ${worker.lName}` : 'Coworker'
+      title = `${workerName} - ${shift.position_name || 'Shift'}`
+    }
     
     return {
       start: startDateTime,
       end: endDateTime,
-      title: shift.position_name || 'Shift',
+      title,
       content: shift.area_name || '',
       class: eventClass,
       shift_id: shift.shift_id,
       is_open: shift.is_open,
+      user_id: shift.user_id,
     }
-  }).filter(Boolean) // Remove any null entries
+  }).filter(Boolean)
   
   return events
 })
@@ -291,6 +354,14 @@ function handleEventClick(event) {
   if (!shiftId) return
   const found = shifts.value.find(s => Number(s.shift_id) === Number(shiftId))
   if (!found) return
+  
+  const uid = currentUserId.value
+  const isMine = Number(found.user_id) === uid
+  const isOpen = !!found.is_open
+  
+  // Only allow clicking own shifts or open shifts
+  if (!isMine && !isOpen) return
+  
   selectedShift.value = found
   shiftDetailsOpen.value = true
 }
@@ -319,7 +390,6 @@ async function confirmOfferChange() {
   try {
     const makeOpen = offerConfirmMode.value === 'offer'
     await ShiftServices.patch(selectedShift.value.shift_id, { is_open: makeOpen ? 1 : 0 })
-    // Refresh shifts & open board so UI stays consistent
     await loadUserShifts()
     offerSuccessMessage.value = makeOpen ? 'Shift offered! It is now visible to other workers.' : 'Offer cancelled.'
     offerSuccessOpen.value = true
@@ -332,15 +402,58 @@ async function confirmOfferChange() {
   }
 }
 
+const isMyShift = computed(() => {
+  if (!selectedShift.value) return false
+  return Number(selectedShift.value.user_id) === currentUserId.value
+})
+
+const canClaimSelected = computed(() => {
+  if (!selectedShift.value) return false
+  return userPositionIds.value.includes(Number(selectedShift.value.position_id))
+})
+
+function openClaimConfirm() {
+  offerError.value = ''
+  claimConfirmOpen.value = true
+}
+
+function closeClaimConfirm() {
+  claimConfirmOpen.value = false
+  offerError.value = ''
+}
+
+async function confirmClaim() {
+  if (!selectedShift.value) return
+  offerSubmitting.value = true
+  offerError.value = ''
+  try {
+    await ShiftServices.claim(selectedShift.value.shift_id)
+    await loadUserShifts()
+    offerSuccessMessage.value = 'Shift claimed successfully!'
+    offerSuccessOpen.value = true
+    closeClaimConfirm()
+    shiftDetailsOpen.value = false
+  } catch (e) {
+    offerError.value = e.response?.data?.message || e.message || 'Could not claim shift'
+  } finally {
+    offerSubmitting.value = false
+  }
+}
+
+const myShifts = computed(() => {
+  const uid = currentUserId.value
+  return shifts.value.filter(s => Number(s.user_id) === uid)
+})
+
 const stats = computed(() => {
   const now = new Date()
   const thisWeek = getWeekRange(now)
   const nextWeek = getWeekRange(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000))
   const thisMonth = getMonthRange(now)
 
-  const thisWeekShifts = filterShiftsByDateRange(shifts.value, thisWeek.start, thisWeek.end)
-  const nextWeekShifts = filterShiftsByDateRange(shifts.value, nextWeek.start, nextWeek.end)
-  const monthShifts = filterShiftsByDateRange(shifts.value, thisMonth.start, thisMonth.end)
+  const thisWeekShifts = filterShiftsByDateRange(myShifts.value, thisWeek.start, thisWeek.end)
+  const nextWeekShifts = filterShiftsByDateRange(myShifts.value, nextWeek.start, nextWeek.end)
+  const monthShifts = filterShiftsByDateRange(myShifts.value, thisMonth.start, thisMonth.end)
 
   return [
     {
@@ -459,10 +572,9 @@ function formatDate(dateString) {
 async function loadUserShifts() {
   try {
     loading.value = true
-    loadingMessage.value = 'Loading your shifts...'
+    loadingMessage.value = 'Loading schedule...'
     
     const currentUser = user.value || Utils.getStore('user')
-    
     if (!currentUser) {
       loadingMessage.value = 'Please log in to view schedule'
       loading.value = false
@@ -470,151 +582,120 @@ async function loadUserShifts() {
     }
 
     const userId = currentUser.userId || currentUser.user_id || currentUser.id
-    
     if (!userId) {
       loadingMessage.value = 'Invalid user session - Please log in again'
       loading.value = false
       return
     }
 
-    loadingMessage.value = 'Loading shifts...'
-    
-    // Load shifts using service
-    const shiftResponse = await ShiftServices.getByUser(userId)
-    let userShifts = shiftResponse.data || shiftResponse || []
-    
-    loadingMessage.value = 'Loading position and area details...'
-    
-    // Load additional data for position and area names (always load these)
-    const [positionResponse, areaResponse] = await Promise.all([
-      PositionServices.getAll().catch(err => {
-        console.error('Position service error:', err)
-        return { data: [] }
-      }),
-      AreaServices.getAll().catch(err => {
-        console.error('Area service error:', err)
-        return { data: [] }
-      })
+    // Load base data in parallel
+    const [positionResponse, areaResponse, puResponse, usersResponse] = await Promise.all([
+      PositionServices.getAll().catch(() => ({ data: [] })),
+      AreaServices.getAll().catch(() => ({ data: [] })),
+      PositionUserServices.getAll().catch(() => ({ data: [] })),
+      UserServices.getAll().catch(() => ({ data: [] })),
     ])
-    
-    const positions = positionResponse.data || positionResponse || []
-    const areas = areaResponse.data || areaResponse || []
-    
-    // Try to determine user's area using multiple approaches
-    let userAreaName = null
-    
-    // Method 1: Try from user data with different possible field names
-    const possiblePositionFields = ['position_id', 'positionId', 'Position_id']
-    for (const field of possiblePositionFields) {
-      if (currentUser[field]) {
-        const userPosition = positions.find(p => 
-          Number(p.position_id) === Number(currentUser[field]) || 
-          Number(p.positionId) === Number(currentUser[field])
-        )
-        if (userPosition) {
-          const userAreaFromPosition = areas.find(a => 
-            Number(a.area_id) === Number(userPosition.area_id) ||
-            Number(a.areaId) === Number(userPosition.area_id)
-          )
-          if (userAreaFromPosition && userAreaFromPosition.area_name !== 'Unknown Area') {
-            userAreaName = userAreaFromPosition.area_name
-            break
-          }
-        }
-      }
+
+    const positions = positionResponse.data || []
+    const areas = areaResponse.data || []
+    const allPU = puResponse.data || []
+    const allUsers = usersResponse.data || []
+
+    // Build user lookup map
+    const uMap = {}
+    allUsers.forEach(u => { uMap[Number(u.user_id)] = { fName: u.fName, lName: u.lName } })
+    allUsersMap.value = uMap
+
+    // Determine which positions this user holds
+    const myPU = allPU.filter(pu => Number(pu.user_id) === Number(userId))
+    userPositionIds.value = myPU.map(pu => Number(pu.position_id))
+
+    // Determine user's area(s) from their positions
+    const myPositionObjs = positions.filter(p => userPositionIds.value.includes(Number(p.position_id)))
+    const myAreaIds = [...new Set(myPositionObjs.map(p => Number(p.area_id)))]
+
+    // Set area name for header
+    if (myAreaIds.length > 0) {
+      const firstArea = areas.find(a => Number(a.area_id) === myAreaIds[0])
+      if (firstArea) userArea.value = firstArea.area_name
     }
-    
-    // Method 2: If no area from user data, try from shifts
-    if (!userAreaName && userShifts.length > 0) {
-      const firstShift = userShifts[0]
-      const position = positions.find(p => Number(p.position_id) === Number(firstShift.position_id))
-      if (position) {
-        const area = areas.find(a => Number(a.area_id) === Number(position.area_id))
-        if (area && area.area_name !== 'Unknown Area') {
-          userAreaName = area.area_name
-        }
-      }
-    }
-    
-    // Method 3: If still no area, check if areas array has data and use first available area
-    if (!userAreaName && areas.length > 0) {
-      const firstArea = areas[0]
-      if (firstArea && firstArea.area_name !== 'Unknown Area') {
-        userAreaName = firstArea.area_name
-      }
-    }
-    
-    // Store the user's area for the header
-    if (userAreaName) {
-      userArea.value = userAreaName
-    }
-    
-    if (userShifts.length === 0) {
+
+    if (myAreaIds.length === 0) {
       shifts.value = []
       loading.value = false
-      loadingMessage.value = 'No shifts scheduled'
+      loadingMessage.value = 'No area assignments found'
       return
     }
-    
-    // Enhance shifts with position and area names
-    const enhancedShifts = userShifts.map(shift => {
+
+    loadingMessage.value = 'Loading area schedules...'
+
+    // Load all live schedules for user's areas
+    const schedulePromises = myAreaIds.map(areaId =>
+      ScheduleServices.getByArea(areaId).catch(() => ({ data: [] }))
+    )
+    const scheduleResults = await Promise.all(schedulePromises)
+    const liveSchedules = scheduleResults
+      .flatMap(r => r.data || [])
+      .filter(s => s.status === 'live')
+
+    if (liveSchedules.length === 0) {
+      shifts.value = []
+      loading.value = false
+      loadingMessage.value = 'No live schedules'
+      return
+    }
+
+    loadingMessage.value = 'Loading shifts...'
+
+    // Load ALL shifts from those live schedules
+    const shiftPromises = liveSchedules.map(s =>
+      ShiftServices.getBySchedule(s.schedule_id).catch(() => ({ data: [] }))
+    )
+    const shiftResults = await Promise.all(shiftPromises)
+    const allShifts = shiftResults.flatMap(r => r.data || [])
+
+    // Enhance with position and area names
+    const enhancedShifts = allShifts.map(shift => {
       const position = positions.find(p => Number(p.position_id) === Number(shift.position_id))
       const area = position ? areas.find(a => Number(a.area_id) === Number(position.area_id)) : null
-      
       return {
         ...shift,
         position_name: position?.position_name || 'Unknown Position',
         area_name: area?.area_name || 'Unknown Area'
       }
     })
-    
+
     shifts.value = enhancedShifts
-    
+
   } catch (error) {
-    console.error('Error loading user shifts:', error)
-    console.error('Error stack:', error.stack)
-    console.error('Error details:', {
-      name: error.name,
-      message: error.message,
-      response: error.response
-    })
-    
+    console.error('Error loading shifts:', error)
     let errorMessage = 'Failed to load data'
-    if (error.message.includes('Network Error') || error.code === 'NETWORK_ERROR') {
-      errorMessage = 'Cannot connect to server - please check if backend is running'
+    if (error.message?.includes('Network Error')) {
+      errorMessage = 'Cannot connect to server'
     } else if (error.response?.status === 401) {
       errorMessage = 'Authentication failed - please log in again'
-    } else if (error.response?.status === 404) {
-      errorMessage = 'API endpoint not found - please check backend configuration'
     } else if (error.response?.status >= 500) {
       errorMessage = 'Server error - please try again later'
     } else {
       errorMessage = error.message || 'Failed to load data'
     }
-    
     loadingMessage.value = `Error: ${errorMessage}`
     shifts.value = []
   } finally {
-    setTimeout(() => {
-      loading.value = false
-    }, 500) // Small delay to show final message
+    setTimeout(() => { loading.value = false }, 300)
   }
 }
 
 onMounted(async () => {
   const currentUser = Utils.getStore('user')
-  
   if (currentUser) {
     user.value = currentUser
-    
-    // Set a timeout to prevent infinite loading
     const loadingTimeout = setTimeout(() => {
       if (loading.value) {
         loading.value = false
         loadingMessage.value = 'Loading timeout - please refresh the page'
       }
-    }, 30000) // 30 second timeout
-    
+    }, 30000)
     try {
       await loadUserShifts()
       clearTimeout(loadingTimeout)
@@ -628,11 +709,10 @@ onMounted(async () => {
   }
 })
 
-// Add retry function
 function retryLoadData() {
   loadUserShifts()
-  openShiftsRef.value?.loadOpenShifts?.()
 }
+
 </script>
 
 <style scoped>
@@ -650,7 +730,7 @@ function retryLoadData() {
   border-radius: 12px;
   border: 1px solid #e2e8f0;
   overflow: hidden;
-  box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.1);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
 }
 
 .calendar-header {
@@ -658,14 +738,14 @@ function retryLoadData() {
   justify-content: center;
   align-items: center;
   padding: 24px;
-  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  background: #fafafa;
   border-bottom: 1px solid #e2e8f0;
 }
 
 .calendar-header h2 {
   font-size: 1.5rem;
   font-weight: 600;
-  color: #b91c1c;
+  color: #1a202c;
   margin: 0;
 }
 
@@ -675,26 +755,26 @@ function retryLoadData() {
   border-radius: 8px;
   border: 1px solid #e2e8f0;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .toggle-btn {
   padding: 8px 16px;
   border: none;
   background: transparent;
-  color: #b91c1c;
+  color: #374151;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .toggle-btn:hover {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: #f3f4f6;
+  color: #111827;
 }
 
 .toggle-btn.active {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  background: #111827;
   color: white;
 }
 
@@ -709,20 +789,31 @@ function retryLoadData() {
 }
 
 :deep(.vuecal__header) {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-  color: white;
-  padding: 16px 24px;
+  background: #f3f4f6;
+  color: #374151;
+  padding: 0;
   border: none;
+}
+
+:deep(.vuecal__title-bar) {
+  background: #f3f4f6;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 :deep(.vuecal__title) {
   font-weight: 600;
+  font-size: 0;
+}
+
+:deep(.vuecal__title)::after {
+  content: 'Schedule';
   font-size: 1.1rem;
 }
 
 :deep(.vuecal__arrow) {
-  color: white;
-  background: rgba(255, 255, 255, 0.15);
+  color: #374151;
+  background: rgba(0, 0, 0, 0.06);
   border-radius: 6px;
   width: 36px;
   height: 36px;
@@ -733,17 +824,17 @@ function retryLoadData() {
 }
 
 :deep(.vuecal__arrow:hover) {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.12);
 }
 
 :deep(.vuecal__weekdays) {
-  background: #fef2f2;
+  background: #f9fafb;
   padding: 12px 0;
   border-bottom: 1px solid #e2e8f0;
 }
 
 :deep(.vuecal__weekday-label) {
-  color: #b91c1c;
+  color: #6b7280;
   font-weight: 600;
   font-size: 0.875rem;
 }
@@ -757,55 +848,55 @@ function retryLoadData() {
   background: #fefefe;
 }
 
-
 :deep(.vuecal__time-column) {
-  background: #fef2f2;
+  background: #f9fafb;
   border-right: 1px solid #e2e8f0;
 }
 
 :deep(.vuecal__time-cell) {
-  color: #b91c1c;
+  color: #6b7280;
   font-weight: 500;
   font-size: 0.8rem;
 }
 
-:deep(.vuecal__event.shift-confirmed) {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+/* My shifts - Blue */
+:deep(.vuecal__event.shift-mine) {
+  background: #3b82f6;
   border: none;
   border-radius: 6px;
   color: white;
-  border-left: 3px solid #991b1b;
+  border-left: 3px solid #2563eb;
+  cursor: pointer;
 }
 
-:deep(.vuecal__event.shift-pending) {
-  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+:deep(.vuecal__event.shift-mine:hover) {
+  background: #2563eb;
+  transform: translateY(-1px);
+}
+
+/* Other people's shifts - Grey */
+:deep(.vuecal__event.shift-other) {
+  background: #9ca3af;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  border-left: 3px solid #6b7280;
+  cursor: default;
+  opacity: 0.85;
+}
+
+/* Open shifts - Red */
+:deep(.vuecal__event.shift-open) {
+  background: #ef4444;
   border: none;
   border-radius: 6px;
   color: white;
   border-left: 3px solid #dc2626;
+  cursor: pointer;
 }
 
-:deep(.vuecal__event.shift-confirmed:hover) {
-  background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
-  transform: translateY(-1px);
-}
-
-:deep(.vuecal__event.shift-pending:hover) {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  transform: translateY(-1px);
-}
-
-/* Offered shift styling */
-::deep(.vuecal__event.shift-offered) {
-  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
-  border: none;
-  border-radius: 6px;
-  color: #1f2937;
-  border-left: 3px solid #d97706;
-}
-
-::deep(.vuecal__event.shift-offered:hover) {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+:deep(.vuecal__event.shift-open:hover) {
+  background: #dc2626;
   transform: translateY(-1px);
 }
 
