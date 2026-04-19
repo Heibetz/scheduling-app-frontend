@@ -105,11 +105,49 @@
           </div>
         </div>
 
-        <!-- Placeholder for future teammate additions (tasklists, notes, etc.) -->
-        <div class="shift-drawer__section">
-          <div class="shift-drawer__sectionTitle">More</div>
-          <div class="shift-drawer__placeholder">
-            Additional shift tools will appear here.
+        <!-- Task Lists Section -->
+        <div class="shift-drawer__section" v-if="isMyShift">
+          <div class="shift-drawer__sectionTitle">Task Lists</div>
+          <div v-if="loadingTasks" class="d-flex align-center justify-center py-4">
+            <v-progress-circular indeterminate size="24" width="2" color="primary" />
+            <span class="ml-2 text-caption">Loading tasks...</span>
+          </div>
+          <div v-else-if="shiftTasks.length === 0" class="shift-drawer__placeholder">
+            No task lists assigned to this shift.
+          </div>
+          <div v-else>
+            <div v-for="st in shiftTasks" :key="st.shift_task_id || st.task_id" class="task-checklist mb-4">
+              <div class="task-checklist__header">
+                <v-icon size="small" color="primary" class="mr-1">mdi-clipboard-list-outline</v-icon>
+                <span class="font-weight-medium">{{ getTaskName(st.task_id) }}</span>
+                <v-chip size="x-small" class="ml-2" :color="getTaskProgress(st.task_id).completed === getTaskProgress(st.task_id).total && getTaskProgress(st.task_id).total > 0 ? 'success' : 'grey'" variant="tonal">
+                  {{ getTaskProgress(st.task_id).completed }}/{{ getTaskProgress(st.task_id).total }}
+                </v-chip>
+              </div>
+              <v-list density="compact" class="task-checklist__items">
+                <v-list-item
+                  v-for="item in (taskListItemsMap[st.task_id] || [])"
+                  :key="item.task_list_item_id"
+                  class="task-checklist__item"
+                  @click="toggleItemStatus(item)"
+                  :disabled="togglingItemId === item.task_list_item_id"
+                >
+                  <template #prepend>
+                    <v-progress-circular v-if="togglingItemId === item.task_list_item_id" indeterminate size="20" width="2" />
+                    <v-checkbox-btn
+                      v-else
+                      :model-value="isItemCompleted(item.task_list_item_id)"
+                      color="success"
+                      density="compact"
+                      @click.stop="toggleItemStatus(item)"
+                    />
+                  </template>
+                  <v-list-item-title :class="{ 'text-decoration-line-through text-grey': isItemCompleted(item.task_list_item_id) }" style="font-size: 0.9em">
+                    {{ item.description || 'No description' }}
+                  </v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </div>
           </div>
         </div>
       </div>
@@ -235,6 +273,9 @@ import PositionUserServices from '../services/positionUserServices'
 import ScheduleServices from '../services/scheduleServices'
 import AreaServices from '../services/areaServices'
 import UserServices from '../services/userServices'
+import TaskServices from '../services/taskServices'
+import TaskListItemServices from '../services/taskListItemServices'
+import TaskListItemStatusServices from '../services/taskListItemStatusServices'
 // State
 const user = ref(Utils.getStore('user'))
 const loading = ref(true)
@@ -254,6 +295,13 @@ const offerError = ref('')
 const offerSuccessOpen = ref(false)
 const offerSuccessMessage = ref('')
 const claimConfirmOpen = ref(false)
+
+// Task list state
+const shiftTasks = ref([])          // tasks assigned to selected shift
+const taskListItemsMap = ref({})    // task_id -> [items]
+const shiftItemStatuses = ref({})   // task_list_item_id -> status record
+const loadingTasks = ref(false)
+const togglingItemId = ref(null)    // item currently being toggled
 
 const today = new Date()
 const currentUserId = computed(() => {
@@ -349,7 +397,7 @@ const calendarEvents = computed(() => {
   return events
 })
 
-function handleEventClick(event) {
+async function handleEventClick(event) {
   const shiftId = event?.shift_id
   if (!shiftId) return
   const found = shifts.value.find(s => Number(s.shift_id) === Number(shiftId))
@@ -364,6 +412,11 @@ function handleEventClick(event) {
   
   selectedShift.value = found
   shiftDetailsOpen.value = true
+  
+  // Load tasks for this shift if it's mine
+  if (isMine) {
+    await loadShiftTasks(shiftId)
+  }
 }
 
 function openOfferConfirm() {
@@ -713,6 +766,120 @@ function retryLoadData() {
   loadUserShifts()
 }
 
+// ─── Task list functions ───
+async function loadShiftTasks(shiftId) {
+  loadingTasks.value = true
+  shiftTasks.value = []
+  taskListItemsMap.value = {}
+  shiftItemStatuses.value = {}
+  try {
+    // 1. Get tasks assigned to this shift
+    const stRes = await TaskServices.getShiftTasks({ shift_id: shiftId })
+    shiftTasks.value = stRes.data || []
+
+    if (shiftTasks.value.length === 0) return
+
+    // 2. Load task list items and statuses in parallel
+    const itemPromises = shiftTasks.value.map(st =>
+      TaskListItemServices.getAll({ task_id: st.task_id }).catch(() => ({ data: [] }))
+    )
+    const statusPromise = TaskListItemStatusServices.getAll({ shift_id: shiftId }).catch(() => ({ data: [] }))
+
+    const [itemResults, statusRes] = await Promise.all([
+      Promise.all(itemPromises),
+      statusPromise
+    ])
+
+    // Build items map
+    const iMap = {}
+    shiftTasks.value.forEach((st, idx) => {
+      iMap[st.task_id] = itemResults[idx].data || []
+    })
+    taskListItemsMap.value = iMap
+
+    // Build status map
+    const sMap = {}
+    for (const s of (statusRes.data || [])) {
+      sMap[s.task_list_item_id] = s
+    }
+    shiftItemStatuses.value = sMap
+
+    // 3. Load task names (we need the full task objects)
+    const taskIds = [...new Set(shiftTasks.value.map(st => st.task_id))]
+    const taskPromises = taskIds.map(id =>
+      TaskServices.get(id).catch(() => ({ data: null }))
+    )
+    const taskResults = await Promise.all(taskPromises)
+    const tMap = {}
+    taskResults.forEach(r => {
+      if (r.data) tMap[r.data.task_id] = r.data
+    })
+    taskNamesMap.value = tMap
+  } catch (e) {
+    console.error('Error loading shift tasks:', e)
+  } finally {
+    loadingTasks.value = false
+  }
+}
+
+const taskNamesMap = ref({})
+
+function getTaskName(taskId) {
+  const t = taskNamesMap.value[taskId]
+  return t ? t.task_name : `Task ${taskId}`
+}
+
+function isItemCompleted(itemId) {
+  const status = shiftItemStatuses.value[itemId]
+  return status ? !!status.is_completed : false
+}
+
+function getTaskProgress(taskId) {
+  const items = taskListItemsMap.value[taskId] || []
+  if (items.length === 0) return { completed: 0, total: 0 }
+  const completed = items.filter(i => isItemCompleted(i.task_list_item_id)).length
+  return { completed, total: items.length }
+}
+
+async function toggleItemStatus(item) {
+  if (!selectedShift.value) return
+  const itemId = item.task_list_item_id
+  const shiftId = selectedShift.value.shift_id
+  togglingItemId.value = itemId
+
+  try {
+    const existing = shiftItemStatuses.value[itemId]
+    if (existing) {
+      // Update existing status record
+      const newCompleted = !existing.is_completed
+      await TaskListItemStatusServices.update(existing.task_list_item_status_id, {
+        is_completed: newCompleted,
+        completed_at: newCompleted ? new Date().toISOString() : null
+      })
+      shiftItemStatuses.value = {
+        ...shiftItemStatuses.value,
+        [itemId]: { ...existing, is_completed: newCompleted, completed_at: newCompleted ? new Date().toISOString() : null }
+      }
+    } else {
+      // Create new status record (marking as complete)
+      const res = await TaskListItemStatusServices.create({
+        shift_id: shiftId,
+        task_list_item_id: itemId,
+        is_completed: true,
+        completed_at: new Date().toISOString()
+      })
+      shiftItemStatuses.value = {
+        ...shiftItemStatuses.value,
+        [itemId]: res.data
+      }
+    }
+  } catch (e) {
+    console.error('Error toggling task item status:', e)
+  } finally {
+    togglingItemId.value = null
+  }
+}
+
 </script>
 
 <style scoped>
@@ -1041,6 +1208,40 @@ function retryLoadData() {
 .shift-drawer__placeholder {
   font-size: 0.875rem;
   color: #94a3b8;
+}
+
+/* Task checklist */
+.task-checklist {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.task-checklist__header {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.task-checklist__items {
+  padding: 0 !important;
+}
+
+.task-checklist__item {
+  cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;
+  min-height: 40px !important;
+}
+
+.task-checklist__item:last-child {
+  border-bottom: none;
+}
+
+.task-checklist__item:hover {
+  background: #f8fafc;
 }
 
 .shift-drawer__actions {

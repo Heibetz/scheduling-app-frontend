@@ -455,19 +455,28 @@
               <v-list density="compact">
                 <template v-for="st in shiftAssignedTasks" :key="st.shift_task_id || st.task_id">
                   <v-list-item>
-                    <v-list-item-title class="font-weight-medium">{{ getTaskName(st.task_id) }}</v-list-item-title>
+                    <v-list-item-title class="font-weight-medium d-flex align-center">
+                      {{ getTaskName(st.task_id) }}
+                      <v-chip size="x-small" class="ml-2" :color="getShiftTaskProgress(st.task_id).completed === getShiftTaskProgress(st.task_id).total && getShiftTaskProgress(st.task_id).total > 0 ? 'success' : 'grey'" variant="tonal">
+                        {{ getShiftTaskProgress(st.task_id).completed }}/{{ getShiftTaskProgress(st.task_id).total }} done
+                      </v-chip>
+                    </v-list-item-title>
                     <v-list-item-subtitle>{{ getTaskDescription(st.task_id) }}</v-list-item-subtitle>
                   </v-list-item>
-                  <!-- Show task list items -->
+                  <!-- Show task list items with completion status -->
                   <v-list-item
                     v-for="item in (taskListItemsMap[st.task_id] || [])"
                     :key="item.task_list_item_id"
                     class="pl-8"
                   >
                     <template #prepend>
-                      <v-icon size="small" color="grey">mdi-circle-small</v-icon>
+                      <v-icon size="small" :color="isShiftItemCompleted(item.task_list_item_id) ? 'success' : 'grey-lighten-1'">
+                        {{ isShiftItemCompleted(item.task_list_item_id) ? 'mdi-check-circle' : 'mdi-circle-outline' }}
+                      </v-icon>
                     </template>
-                    <v-list-item-title style="font-size:0.85em">{{ item.description || 'No description' }}</v-list-item-title>
+                    <v-list-item-title :style="{ fontSize: '0.85em', textDecoration: isShiftItemCompleted(item.task_list_item_id) ? 'line-through' : 'none', color: isShiftItemCompleted(item.task_list_item_id) ? '#9ca3af' : 'inherit' }">
+                      {{ item.description || 'No description' }}
+                    </v-list-item-title>
                   </v-list-item>
                   <v-divider />
                 </template>
