@@ -25,10 +25,16 @@
           <template v-if="viewMode === 'overview'">
             <div class="d-flex align-center justify-space-between ga-3 mb-3">
               <span class="text-h6 font-weight-bold">Schedules</span>
-              <v-btn color="primary" @click="openCreateScheduleDialog">
-                <v-icon start>mdi-calendar-plus</v-icon>
-                Create Schedule
-              </v-btn>
+              <div class="d-flex ga-2">
+                <v-btn color="secondary" @click="openCreateTemplateDialog">
+                  <v-icon start>mdi-file-document-outline</v-icon>
+                  Create Template
+                </v-btn>
+                <v-btn color="primary" @click="openCreateScheduleDialog">
+                  <v-icon start>mdi-calendar-plus</v-icon>
+                  Create Schedule
+                </v-btn>
+              </div>
             </div>
 
             <div v-if="areaSchedules.length === 0" class="text-center text-grey pa-8">
@@ -49,10 +55,90 @@
               :on-event-click="handleOverviewEventClick"
               :editable-events="{ create: false, drag: false, resize: false, delete: false, title: false }"
             />
+
+            <div v-if="templates.length > 0" class="mt-4">
+              <span class="text-subtitle-2 font-weight-bold">Saved Templates</span>
+              <div class="d-flex flex-wrap ga-2 mt-2">
+                <v-chip
+                  v-for="tmpl in templates"
+                  :key="tmpl.template_id"
+                  color="secondary"
+                  variant="tonal"
+                  class="cursor-pointer"
+                  @click="enterTemplateEditor(tmpl.template_id)"
+                >
+                  <v-icon start>mdi-file-document-outline</v-icon>
+                  {{ tmpl.template_name }}
+                </v-chip>
+              </div>
+            </div>
+          </template>
+
+          <!-- ═══ TEMPLATE MODE: calendar-based template shift editor ═══ -->
+          <template v-else-if="viewMode === 'template'">
+            <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-3">
+              <div class="d-flex align-center ga-3">
+                <v-btn variant="text" size="small" @click="backToOverviewFromTemplate">
+                  <v-icon start>mdi-arrow-left</v-icon>
+                  Back
+                </v-btn>
+                <span class="text-h6 font-weight-bold">
+                  {{ editingTemplate?.template_name || 'Template' }}
+                </span>
+                <v-chip color="secondary" variant="tonal">Template</v-chip>
+              </div>
+              <div class="d-flex align-center ga-2">
+                <v-btn color="error" variant="tonal" @click="deleteTemplate">
+                  <v-icon start>mdi-delete</v-icon>
+                  Delete Template
+                </v-btn>
+              </div>
+            </div>
+
+            <p class="text-body-2 text-grey-darken-1 mb-3">
+              Drag on the calendar to create shift templates. Click a shift to edit or assign task lists.
+            </p>
+
+            <div class="d-flex flex-wrap align-center ga-3 mb-3">
+              <v-text-field
+                v-model.number="defaultTemplateShiftHours"
+                label="Default Shift (hrs)"
+                type="number"
+                :min="1"
+                :max="18"
+                density="comfortable"
+                hide-details
+                style="max-width: 140px"
+              />
+            </div>
+
+            <vue-cal
+              class="manager-calendar hide-nav-arrows"
+              :events="templateCalendarEvents"
+              :selected-date="templateReferenceDate"
+              active-view="week"
+              :twelve-hour="true"
+              :start-week-on-sunday="true"
+              :disable-views="['years', 'year', 'month', 'day']"
+              :drag-to-create-event="true"
+              :editable-events="calendarEditConfig"
+              :on-event-create="handleTemplateEventCreate"
+              :on-event-click="handleTemplateEventClick"
+              @event-drag-create="handleTemplateDragCreate"
+              @cell-click="handleTemplateCellClick"
+              :time-from="360"
+              :time-to="1200"
+              :time-step="60"
+              :snap-to-time="60"
+            >
+              <template #weekday-heading="{ heading }">
+                <span class="text-body-2 font-weight-bold">{{ getDayOfWeekLabel(heading.date.getDay()) }}</span>
+              </template>
+            </vue-cal>
           </template>
 
           <!-- ═══ SCHEDULE MODE: weekly shift editor for a single schedule ═══ -->
-          <template v-else>
+          <template v-else-if="viewMode === 'schedule'">
             <div class="d-flex flex-wrap align-center justify-space-between ga-3 mb-3">
               <div class="d-flex align-center ga-3">
                 <v-btn variant="text" size="small" @click="backToOverview">
@@ -344,6 +430,25 @@
           />
 
           <v-select
+            v-model="scheduleForm.template_id"
+            :items="templates"
+            item-title="template_name"
+            item-value="template_id"
+            label="Use Template (optional)"
+            clearable
+            @update:model-value="handleTemplateSelection"
+          >
+            <template v-slot:no-data>
+              <v-list-item>
+                <v-list-item-title class="text-grey text-caption">
+                  No templates yet. Create one first, or leave blank for empty schedule.
+                </v-list-item-title>
+              </v-list-item>
+            </template>
+          </v-select>
+
+          <v-select
+            v-if="!scheduleForm.template_id"
             v-model="scheduleForm.schedule_type"
             :items="scheduleTypeOptions"
             item-title="label"
@@ -360,11 +465,11 @@
           />
 
           <v-text-field
-            v-if="scheduleForm.schedule_type === 'custom'"
+            v-if="scheduleForm.template_id || scheduleForm.schedule_type === 'custom'"
             v-model="scheduleForm.end_date"
             label="End Date"
             type="date"
-            required
+            :required="scheduleForm.template_id || scheduleForm.schedule_type === 'custom'"
           />
 
           <v-alert v-if="scheduleError" type="error" density="compact" class="mt-2">{{ scheduleError }}</v-alert>
@@ -372,7 +477,152 @@
         <v-card-actions class="pa-4">
           <v-spacer />
           <v-btn variant="text" @click="showCreateScheduleDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="savingSchedule" @click="saveSchedule">Create</v-btn>
+          <v-btn color="primary" :loading="savingSchedule" @click="saveSchedule">{{ scheduleForm.template_id ? 'Apply Template' : 'Create' }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="showCreateTemplateDialog" max-width="900px">
+      <v-card>
+        <v-card-title class="pa-4">Create Schedule Template</v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="templateForm.template_name"
+            label="Template Name"
+            placeholder="e.g. Standard Weekly Schedule"
+            required
+          />
+
+          <v-select
+            v-model="templateForm.duration_type"
+            :items="[
+              { label: '1 Week (7 days)', value: 'weekly' },
+              { label: '2 Weeks (14 days)', value: 'bi-weekly' },
+              { label: 'Custom (define later)', value: 'custom' },
+            ]"
+            item-title="label"
+            item-value="value"
+            label="Template Duration"
+            required
+          />
+
+          <v-alert v-if="templateError" type="error" density="compact" class="mt-2">{{ templateError }}</v-alert>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showCreateTemplateDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="savingTemplate" @click="saveTemplate">Create & Add Shifts</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="showTemplateShiftDialog" max-width="560px">
+      <v-card>
+        <v-card-title class="pa-4">{{ editingTemplateShiftId ? 'Edit Template Shift' : 'Create Template Shift' }}</v-card-title>
+        <v-card-text>
+          <v-text-field
+            :model-value="getDayOfWeekLabel(templateShiftForm.day_of_week)"
+            label="Day of Week"
+            readonly
+            disabled
+          />
+
+          <div class="d-flex ga-3">
+            <v-text-field
+              v-model="templateShiftForm.start_time"
+              label="Start Time"
+              type="time"
+              class="flex-grow-1"
+              required
+            />
+            <v-text-field
+              v-model="templateShiftForm.end_time"
+              label="End Time"
+              type="time"
+              class="flex-grow-1"
+              required
+            />
+          </div>
+
+          <v-select
+            v-model="templateShiftForm.position_id"
+            :items="areaPositions"
+            item-title="position_name"
+            item-value="position_id"
+            label="Position"
+            required
+          />
+
+          <v-select
+            v-model="templateShiftForm.user_id"
+            :items="[{ user_id: null, label: 'Open (unassigned)' }, ...workers.map(w => ({ user_id: w.user_id, label: `${w.fName} ${w.lName}` }))]"
+            item-title="label"
+            item-value="user_id"
+            label="Assign Worker (optional)"
+            clearable
+          />
+
+          <template v-if="editingTemplateShiftId">
+            <div class="mt-4">
+              <span class="text-subtitle-2">Assigned Task Lists</span>
+              <div v-if="templateShiftAssignedTasks.length > 0" class="mt-2">
+                <v-chip-group>
+                  <v-chip
+                    v-for="tst in templateShiftAssignedTasks"
+                    :key="tst.template_shift_task_id"
+                    closable
+                    @click:close="deleteTemplateShiftTask(editingTemplateShiftId, tst.template_shift_task_id)"
+                    color="primary"
+                    variant="tonal"
+                  >
+                    {{ getTaskName(tst.task_id) }}
+                  </v-chip>
+                </v-chip-group>
+              </div>
+              <div v-else class="text-grey text-caption mt-1">No task lists assigned.</div>
+              <div class="d-flex align-center ga-2 mt-2">
+                <v-select
+                  v-model="templateShiftSelectedTaskId"
+                  :items="templateShiftAvailableTasks"
+                  item-title="task_name"
+                  item-value="task_id"
+                  label="Assign task list"
+                  density="compact"
+                  hide-details
+                  class="flex-grow-1"
+                  clearable
+                />
+                <v-btn
+                  size="small"
+                  color="primary"
+                  variant="tonal"
+                  :disabled="!templateShiftSelectedTaskId"
+                  @click="addTemplateShiftTask(editingTemplateShiftId)"
+                >
+                  <v-icon start>mdi-plus</v-icon>
+                  Add
+                </v-btn>
+              </div>
+            </div>
+          </template>
+
+          <v-alert v-if="templateShiftError" type="error" density="compact" class="mt-2">{{ templateShiftError }}</v-alert>
+        </v-card-text>
+        <v-card-actions class="pa-4">
+          <v-btn
+            v-if="editingTemplateShiftId"
+            color="error"
+            variant="tonal"
+            :loading="savingTemplateShift"
+            @click="deleteTemplateShift(editingTemplateShiftId)"
+          >
+            Delete
+          </v-btn>
+          <v-spacer />
+          <v-btn variant="text" @click="showTemplateShiftDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="savingTemplateShift" @click="saveTemplateShift">
+            {{ editingTemplateShiftId ? 'Save Changes' : 'Create' }}
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -784,6 +1034,7 @@ import PositionServices from "../services/positionServices";
 import AreaServices from "../services/areaServices";
 import UserServices from "../services/userServices";
 import ScheduleServices from "../services/scheduleServices";
+import ScheduleTemplateServices from "../services/scheduleTemplateServices";
 import ShiftServices from "../services/shiftServices";
 import TaskServices from "../services/taskServices";
 import TaskListItemServices from "../services/taskListItemServices";
@@ -822,9 +1073,37 @@ export default {
       schedule_type: "weekly",
       start_date: "",
       end_date: "",
+      template_id: null,
     });
     const savingSchedule = ref(false);
     const scheduleError = ref("");
+
+    // Template state
+    const showCreateTemplateDialog = ref(false);
+    const templates = ref([]);
+    const editingTemplate = ref(null);
+    const templateForm = ref({
+      template_name: "",
+      duration_type: "weekly",
+    });
+    const savingTemplate = ref(false);
+    const templateError = ref("");
+
+    const showTemplateShiftDialog = ref(false);
+    const templateShiftForm = ref({
+      day_of_week: null,
+      position_id: null,
+      start_time: "",
+      end_time: "",
+      user_id: null,
+    });
+    const editingTemplateShiftId = ref(null);
+    const savingTemplateShift = ref(false);
+    const templateShiftError = ref("");
+    const templateShiftSelectedTaskId = ref(null);
+    const defaultTemplateShiftHours = ref(8);
+    const templatePendingDeleteFn = ref(null);
+    const templateSkipCellClick = ref(false);
 
     const showShiftDialog = ref(false);
     const shiftForm = ref({
@@ -1166,14 +1445,16 @@ export default {
       });
     });
 
-    const openCreateScheduleDialog = () => {
+    const openCreateScheduleDialog = async () => {
       const today = new Date();
       const start = toDateOnly(today);
+      await fetchTemplates();
       scheduleForm.value = {
         schedule_name: area.value.area_name ? `${area.value.area_name} Schedule` : "New Schedule",
         schedule_type: "weekly",
         start_date: start,
         end_date: "",
+        template_id: null,
       };
       scheduleError.value = "";
       showCreateScheduleDialog.value = true;
@@ -1190,6 +1471,68 @@ export default {
         return;
       }
 
+      const currentUser = user.value || Utils.getStore("user");
+      const created_by = currentUser?.user_id || currentUser?.userId || currentUser?.id;
+      if (!created_by) {
+        scheduleError.value = "User session invalid.";
+        return;
+      }
+
+      // If template is selected, apply it
+      if (scheduleForm.value.template_id) {
+        let endDate = scheduleForm.value.end_date;
+        const startDateObj = new Date(scheduleForm.value.start_date);
+
+        // Default to 1 week if no end date
+        if (!endDate) {
+          const weeklyEnd = new Date(startDateObj);
+          weeklyEnd.setDate(weeklyEnd.getDate() + 6);
+          endDate = toDateOnly(weeklyEnd);
+        }
+
+        if (new Date(scheduleForm.value.start_date) > new Date(endDate)) {
+          scheduleError.value = "End date must be after start date.";
+          return;
+        }
+
+        const newStart = scheduleForm.value.start_date;
+        const newEnd = endDate;
+        const overlap = areaSchedules.value.find((s) => {
+          const existStart = toDateOnly(s.start_date);
+          const existEnd = toDateOnly(s.end_date);
+          return newStart <= existEnd && newEnd >= existStart;
+        });
+        if (overlap) {
+          scheduleError.value = `Overlaps with "${overlap.schedule_name}" (${toDateOnly(overlap.start_date)} to ${toDateOnly(overlap.end_date)}).`;
+          return;
+        }
+
+        scheduleError.value = "";
+        savingSchedule.value = true;
+
+        try {
+          const payload = {
+            start_date: scheduleForm.value.start_date,
+            end_date: endDate,
+            schedule_name: scheduleForm.value.schedule_name?.trim() || "Untitled Schedule",
+            created_by,
+          };
+
+          const response = await ScheduleTemplateServices.apply(scheduleForm.value.template_id, payload);
+          showCreateScheduleDialog.value = false;
+          await fetchAreaSchedules(area.value.area_id);
+          if (response.data?.schedule_id) {
+            await enterSchedule(response.data.schedule_id);
+          }
+        } catch (error) {
+          scheduleError.value = error?.response?.data?.message || "Failed to apply template.";
+        } finally {
+          savingSchedule.value = false;
+        }
+        return;
+      }
+
+      // Regular schedule creation without template
       let endDate = scheduleForm.value.end_date;
       const startDateObj = new Date(scheduleForm.value.start_date);
 
@@ -1305,6 +1648,311 @@ export default {
         console.error("Error deleting schedule:", error);
       } finally {
         deletingSchedule.value = false;
+      }
+    };
+
+    // ── Template Functions ────────────────────────────────────
+
+    const fetchTemplates = async () => {
+      if (!area.value.area_id) return;
+      try {
+        const response = await ScheduleTemplateServices.getAll(area.value.area_id);
+        templates.value = response.data || [];
+      } catch (error) {
+        console.error("Error loading templates:", error);
+      }
+    };
+
+    const reloadEditingTemplate = async () => {
+      if (!editingTemplate.value?.template_id) return;
+      try {
+        const response = await ScheduleTemplateServices.get(editingTemplate.value.template_id);
+        editingTemplate.value = response.data;
+      } catch (error) {
+        console.error("Error reloading template:", error);
+      }
+    };
+
+    const templateReferenceDate = computed(() => {
+      const today = new Date();
+      const day = today.getDay();
+      const diff = today.getDate() - day;
+      return new Date(today.getFullYear(), today.getMonth(), diff);
+    });
+
+    const templateCalendarEvents = computed(() => {
+      if (!editingTemplate.value?.templateShifts) return [];
+      const refSunday = templateReferenceDate.value;
+      console.log('[Template Events] refSunday:', refSunday, 'shifts:', editingTemplate.value.templateShifts.length);
+
+      return editingTemplate.value.templateShifts.map((ts) => {
+        const dayDate = new Date(refSunday);
+        dayDate.setDate(dayDate.getDate() + ts.day_of_week);
+        const dateStr = toDateOnly(dayDate);
+
+        const workerName = ts.user
+          ? `${ts.user.fName} ${ts.user.lName}`
+          : 'Open';
+
+        const eventClass = ts.user_id ? 'shift-live-covered' : 'shift-draft';
+
+        const evt = {
+          start: combineDateTime(dateStr, (ts.start_time || '').slice(0, 5)),
+          end: combineDateTime(dateStr, (ts.end_time || '').slice(0, 5)),
+          title: workerName,
+          content: ts.position?.position_name || '',
+          class: eventClass,
+          template_shift_id: ts.template_shift_id,
+        };
+        console.log('[Template Event]', { day_of_week: ts.day_of_week, dateStr, start: evt.start, end: evt.end, title: evt.title });
+        return evt;
+      });
+    });
+
+    const templateShiftAssignedTasks = computed(() => {
+      if (!editingTemplateShiftId.value || !editingTemplate.value?.templateShifts) return [];
+      const shift = editingTemplate.value.templateShifts.find(
+        (ts) => Number(ts.template_shift_id) === Number(editingTemplateShiftId.value)
+      );
+      return shift?.templateShiftTasks || [];
+    });
+
+    const templateShiftAvailableTasks = computed(() => {
+      const assignedIds = templateShiftAssignedTasks.value.map((tst) => Number(tst.task_id));
+      return areaTasks.value.filter((t) => !assignedIds.includes(Number(t.task_id)));
+    });
+
+    const openCreateTemplateDialog = () => {
+      templateForm.value = {
+        template_name: "",
+        duration_type: "weekly",
+      };
+      templateError.value = "";
+      showCreateTemplateDialog.value = true;
+    };
+
+    const saveTemplate = async () => {
+      if (!area.value.area_id) {
+        templateError.value = "No area found.";
+        return;
+      }
+      if (!templateForm.value.template_name?.trim()) {
+        templateError.value = "Template name is required.";
+        return;
+      }
+
+      templateError.value = "";
+      savingTemplate.value = true;
+
+      try {
+        const payload = {
+          area_id: area.value.area_id,
+          template_name: templateForm.value.template_name.trim(),
+        };
+
+        const response = await ScheduleTemplateServices.create(payload);
+        showCreateTemplateDialog.value = false;
+        await fetchTemplates();
+        await enterTemplateEditor(response.data.template_id);
+      } catch (error) {
+        templateError.value = error?.response?.data?.message || "Failed to create template.";
+      } finally {
+        savingTemplate.value = false;
+      }
+    };
+
+    const enterTemplateEditor = async (templateId) => {
+      try {
+        const response = await ScheduleTemplateServices.get(templateId);
+        editingTemplate.value = response.data;
+        await fetchAreaTasks();
+        await fetchAllTaskListItems();
+        viewMode.value = 'template';
+      } catch (error) {
+        console.error("Error loading template:", error);
+      }
+    };
+
+    const backToOverviewFromTemplate = async () => {
+      editingTemplate.value = null;
+      viewMode.value = 'overview';
+      await fetchTemplates();
+    };
+
+    const deleteTemplate = async () => {
+      if (!editingTemplate.value?.template_id) return;
+      try {
+        await ScheduleTemplateServices.delete(editingTemplate.value.template_id);
+        editingTemplate.value = null;
+        await fetchTemplates();
+        viewMode.value = 'overview';
+      } catch (error) {
+        console.error("Error deleting template:", error);
+      }
+    };
+
+    const openTemplateShiftDialog = async ({ templateShift = null, start = null, end = null } = {}) => {
+      templateShiftError.value = "";
+      templateShiftSelectedTaskId.value = null;
+
+      await fetchAreaTasks();
+      await fetchAllTaskListItems();
+
+      if (templateShift) {
+        editingTemplateShiftId.value = templateShift.template_shift_id;
+        templateShiftForm.value = {
+          day_of_week: templateShift.day_of_week,
+          position_id: templateShift.position_id,
+          start_time: (templateShift.start_time || '').slice(0, 5),
+          end_time: (templateShift.end_time || '').slice(0, 5),
+          user_id: templateShift.user_id || null,
+        };
+      } else {
+        editingTemplateShiftId.value = null;
+        templateShiftForm.value = {
+          day_of_week: start ? start.getDay() : 0,
+          position_id: areaPositions.value[0]?.position_id || null,
+          start_time: toTimeOnly(start),
+          end_time: toTimeOnly(end),
+          user_id: null,
+        };
+      }
+
+      showTemplateShiftDialog.value = true;
+    };
+
+    const handleTemplateEventCreate = (event, deleteEventFunction) => {
+      if (!editingTemplate.value) return false;
+      templatePendingDeleteFn.value = deleteEventFunction || null;
+      return event;
+    };
+
+    const handleTemplateDragCreate = (event) => {
+      if (!editingTemplate.value) return;
+      templateSkipCellClick.value = true;
+      setTimeout(() => { templateSkipCellClick.value = false; }, 300);
+      if (templatePendingDeleteFn.value) {
+        templatePendingDeleteFn.value();
+        templatePendingDeleteFn.value = null;
+      }
+      openTemplateShiftDialog({ start: event.start, end: event.end });
+    };
+
+    const handleTemplateCellClick = (cellDate) => {
+      if (templateSkipCellClick.value) return;
+      if (!editingTemplate.value) return;
+
+      const start = new Date(cellDate);
+      const end = new Date(start);
+      end.setHours(end.getHours() + (defaultTemplateShiftHours.value || 8));
+      const endOfDay = new Date(start);
+      endOfDay.setHours(23, 0, 0, 0);
+      if (end > endOfDay) end.setTime(endOfDay.getTime());
+
+      openTemplateShiftDialog({ start, end });
+    };
+
+    const handleTemplateEventClick = (eventData) => {
+      const clickedEvent = eventData?.event || eventData;
+      const tsId = clickedEvent?.template_shift_id;
+      if (!tsId) return;
+
+      const ts = editingTemplate.value?.templateShifts?.find(
+        (s) => Number(s.template_shift_id) === Number(tsId)
+      );
+      if (ts) openTemplateShiftDialog({ templateShift: ts });
+    };
+
+    const saveTemplateShift = async () => {
+      if (!editingTemplate.value?.template_id) return;
+
+      if (templateShiftForm.value.day_of_week == null || !templateShiftForm.value.position_id ||
+          !templateShiftForm.value.start_time || !templateShiftForm.value.end_time) {
+        templateShiftError.value = "All fields are required.";
+        return;
+      }
+
+      if (templateShiftForm.value.start_time >= templateShiftForm.value.end_time) {
+        templateShiftError.value = "End time must be after start time.";
+        return;
+      }
+
+      templateShiftError.value = "";
+      savingTemplateShift.value = true;
+
+      try {
+        const payload = {
+          day_of_week: templateShiftForm.value.day_of_week,
+          position_id: templateShiftForm.value.position_id,
+          start_time: templateShiftForm.value.start_time,
+          end_time: templateShiftForm.value.end_time,
+          user_id: templateShiftForm.value.user_id || null,
+        };
+
+        if (editingTemplateShiftId.value) {
+          await ScheduleTemplateServices.updateShift(
+            editingTemplate.value.template_id, editingTemplateShiftId.value, payload
+          );
+        } else {
+          await ScheduleTemplateServices.createShift(editingTemplate.value.template_id, payload);
+        }
+        showTemplateShiftDialog.value = false;
+        await reloadEditingTemplate();
+      } catch (error) {
+        templateShiftError.value = error?.response?.data?.message || "Failed to save template shift.";
+      } finally {
+        savingTemplateShift.value = false;
+      }
+    };
+
+    const deleteTemplateShift = async (shiftId) => {
+      if (!editingTemplate.value?.template_id) return;
+
+      try {
+        await ScheduleTemplateServices.deleteShift(editingTemplate.value.template_id, shiftId);
+        showTemplateShiftDialog.value = false;
+        await reloadEditingTemplate();
+      } catch (error) {
+        console.error("Error deleting template shift:", error);
+      }
+    };
+
+    const addTemplateShiftTask = async (shiftId) => {
+      if (!editingTemplate.value?.template_id) return;
+      const taskId = templateShiftSelectedTaskId.value;
+      if (!taskId) return;
+
+      try {
+        await ScheduleTemplateServices.createShiftTask(editingTemplate.value.template_id, shiftId, { task_id: taskId });
+        templateShiftSelectedTaskId.value = null;
+        await reloadEditingTemplate();
+      } catch (error) {
+        console.error("Error adding task to template shift:", error);
+      }
+    };
+
+    const deleteTemplateShiftTask = async (shiftId, taskId) => {
+      if (!editingTemplate.value?.template_id) return;
+
+      try {
+        await ScheduleTemplateServices.deleteShiftTask(editingTemplate.value.template_id, shiftId, taskId);
+        await reloadEditingTemplate();
+      } catch (error) {
+        console.error("Error deleting template shift task:", error);
+      }
+    };
+
+    const getDayOfWeekLabel = (day) => {
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      return days[day] || 'Unknown';
+    };
+
+    const handleTemplateSelection = (templateId) => {
+      if (templateId && scheduleForm.value.start_date && !scheduleForm.value.end_date) {
+        const startDateObj = new Date(scheduleForm.value.start_date);
+        const weeklyEnd = new Date(startDateObj);
+        weeklyEnd.setDate(weeklyEnd.getDate() + 6);
+        scheduleForm.value.end_date = toDateOnly(weeklyEnd);
       }
     };
 
@@ -2113,6 +2761,12 @@ export default {
       fetchManagerArea();
     });
 
+    watch(area, async (newArea) => {
+      if (newArea?.area_id) {
+        await fetchTemplates();
+      }
+    });
+
     return {
       area,
       workers,
@@ -2250,6 +2904,40 @@ export default {
       removeWorkerPosition,
       confirmRemoveWorker,
       removeWorkerFromArea,
+      // Template functions
+      templates,
+      showCreateTemplateDialog,
+      editingTemplate,
+      templateForm,
+      savingTemplate,
+      templateError,
+      openCreateTemplateDialog,
+      saveTemplate,
+      enterTemplateEditor,
+      backToOverviewFromTemplate,
+      deleteTemplate,
+      templateReferenceDate,
+      templateCalendarEvents,
+      templateShiftAssignedTasks,
+      templateShiftAvailableTasks,
+      showTemplateShiftDialog,
+      templateShiftForm,
+      editingTemplateShiftId,
+      savingTemplateShift,
+      templateShiftError,
+      templateShiftSelectedTaskId,
+      defaultTemplateShiftHours,
+      openTemplateShiftDialog,
+      handleTemplateEventCreate,
+      handleTemplateDragCreate,
+      handleTemplateCellClick,
+      handleTemplateEventClick,
+      saveTemplateShift,
+      deleteTemplateShift,
+      addTemplateShiftTask,
+      deleteTemplateShiftTask,
+      getDayOfWeekLabel,
+      handleTemplateSelection,
     };
   },
 };
