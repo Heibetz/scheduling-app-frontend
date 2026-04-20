@@ -65,7 +65,16 @@ const showTimeInputs = ref({});
 
 // Toggle time input visibility for a specific day
 const toggleTimeInputs = (dayIndex) => {
-  showTimeInputs.value[dayIndex] = !showTimeInputs.value[dayIndex];
+  const isOpening = !showTimeInputs.value[dayIndex];
+  showTimeInputs.value[dayIndex] = isOpening;
+  
+  // If opening and day is available but has no time ranges, initialize with default
+  if (isOpening) {
+    const dayForm = availabilityForm.value[dayIndex];
+    if (dayForm.isAvailable && dayForm.timeRanges.length === 0) {
+      // Keep it as 24/7 available initially, let user choose
+    }
+  }
 };
 
 // Get status text for a day
@@ -108,17 +117,50 @@ const totalAvailableHours = computed(() => {
   return Math.round(totalHours * 10) / 10;
 });
 
-// Time options for dropdowns
+// Time options for dropdowns - now with 1-minute increments
 const timeOptions = ref([]);
 const generateTimeOptions = () => {
   const times = [];
   for (let hour = 0; hour < 24; hour++) {
-    for (let minute = 0; minute < 60; minute += 15) {
+    for (let minute = 0; minute < 60; minute += 1) {
       const timeString = convertTo12Hour(`${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`);
       times.push(timeString);
     }
   }
   timeOptions.value = times;
+};
+
+// Validate manual time input
+const validateTimeInput = (timeString) => {
+  if (!timeString) return false;
+  
+  // Check if it matches the expected format (e.g., "9:30 AM" or "09:30 AM")
+  const timeRegex = /^(0?[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)$/i;
+  return timeRegex.test(timeString.trim());
+};
+
+// Format typed time to consistent format
+const formatTimeInput = (timeString) => {
+  if (!timeString) return '';
+  
+  const trimmed = timeString.trim().toUpperCase();
+  
+  // If it's already a valid format, return as is
+  if (validateTimeInput(trimmed)) {
+    // Ensure consistent formatting (add leading zero to hour if single digit)
+    const match = trimmed.match(/^([0-9]{1,2}):([0-5][0-9])\s?(AM|PM)$/i);
+    if (match) {
+      const hour = parseInt(match[1]);
+      const minute = match[2];
+      const period = match[3].toUpperCase();
+      
+      if (hour >= 1 && hour <= 12) {
+        return `${hour}:${minute} ${period}`;
+      }
+    }
+  }
+  
+  return timeString;
 };
 
 // Convert 24-hour time to 12-hour AM/PM format
@@ -231,6 +273,16 @@ const validateTimeRanges = (dayForm) => {
   
   for (let i = 0; i < dayForm.timeRanges.length; i++) {
     const range = dayForm.timeRanges[i];
+    
+    // Validate time format first
+    if (!validateTimeInput(range.startTime)) {
+      return `Available time range ${i + 1}: Invalid start time format. Use format like "9:30 AM"`;
+    }
+    
+    if (!validateTimeInput(range.endTime)) {
+      return `Available time range ${i + 1}: Invalid end time format. Use format like "5:30 PM"`;
+    }
+    
     // Convert to 24-hour for comparison
     const startTime24 = convertTo24Hour(range.startTime);
     const endTime24 = convertTo24Hour(range.endTime);
@@ -369,10 +421,10 @@ const setWeekdayAvailable = () => {
       dayForm.timeRanges = [];
     } else {
       dayForm.isAvailable = true;
-      dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }];
+      dayForm.timeRanges = [{ startTime: '8:30 AM', endTime: '5:15 PM', availabilityId: null }];
     }
   });
-  showSnackbar('Weekdays set to 9-5 availability, weekends unavailable', 'info');
+  showSnackbar('Weekdays set to 8:30 AM - 5:15 PM availability, weekends unavailable', 'info');
 };
 
 const setFullWeekAvailable = () => {
@@ -492,9 +544,14 @@ onMounted(async () => {
         :key="dayForm.day" 
         class="day-item"
       >
-        <div class="day-row">
+        <div 
+          class="day-row clickable-day" 
+          @click="toggleTimeInputs(dayIndex)"
+          :class="{ 'expanded': showTimeInputs[dayIndex] }"
+        >
           <div class="day-info">
             <h3 class="day-name">{{ dayForm.dayName }}</h3>
+            <p class="click-hint">Click to manage availability</p>
           </div>
           
           <div class="day-status">
@@ -508,78 +565,114 @@ onMounted(async () => {
             </v-chip>
           </div>
           
-          <div class="day-actions">
-            <v-btn
-              v-if="!dayForm.isAvailable"
-              color="#28a745"
-              variant="contained"
-              size="small"
-              rounded="lg"
-              @click="dayForm.isAvailable = true; dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }]; toggleTimeInputs(dayIndex)"
-              class="action-btn"
+          <div class="expand-indicator">
+            <v-icon 
+              :class="{ 'rotated': showTimeInputs[dayIndex] }" 
+              class="expand-icon"
             >
-              Add Available Times
-            </v-btn>
-            <v-btn
-              v-else-if="dayForm.timeRanges.length === 0"
-              color="#007bff"
-              variant="outlined"
-              size="small"
-              rounded="lg"
-              @click="dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }]; toggleTimeInputs(dayIndex)"
-              class="action-btn"
-            >
-              Set Specific Hours
-            </v-btn>
-            <v-btn
-              v-else
-              color="transparent"
-              variant="outlined"
-              size="small"
-              rounded="lg"
-              @click="toggleTimeInputs(dayIndex)"
-              class="edit-btn"
-            >
-              <v-icon size="16" class="mr-1">mdi-pencil</v-icon>
-              Edit
-            </v-btn>
+              mdi-chevron-down
+            </v-icon>
           </div>
         </div>
 
         <!-- Expandable Time Input Section -->
         <v-expand-transition>
-          <div v-show="showTimeInputs[dayIndex] && dayForm.isAvailable && (dayForm.timeRanges.length > 0 || showTimeInputs[dayIndex])" class="time-inputs-section">
+          <div v-show="showTimeInputs[dayIndex]" class="time-inputs-section">
             <div class="time-ranges-container">
-              <div 
-                v-for="(range, rangeIndex) in dayForm.timeRanges" 
-                :key="`${dayForm.day}-${rangeIndex}`"
-                class="time-range-input"
-              >
+              <!-- Availability Options -->
+              <div class="availability-options">
+                <h4 class="options-title">Set Availability for {{ dayForm.dayName }}</h4>
+                
+                <div class="quick-options">
+                  <v-btn
+                    variant="outlined"
+                    size="small"
+                    color="#28a745"
+                    @click="dayForm.isAvailable = true; dayForm.timeRanges = []"
+                    :class="{ 'selected-option': dayForm.isAvailable && dayForm.timeRanges.length === 0 }"
+                    class="option-btn"
+                  >
+                    <v-icon size="16" class="mr-1">mdi-clock-check</v-icon>
+                    Available 24/7
+                  </v-btn>
+                  
+                  <v-btn
+                    variant="outlined"
+                    size="small"
+                    color="#007bff"
+                    @click="dayForm.isAvailable = true; if (dayForm.timeRanges.length === 0) dayForm.timeRanges = [{ startTime: '9:00 AM', endTime: '5:00 PM', availabilityId: null }]"
+                    :class="{ 'selected-option': dayForm.isAvailable && dayForm.timeRanges.length > 0 }"
+                    class="option-btn"
+                  >
+                    <v-icon size="16" class="mr-1">mdi-clock-outline</v-icon>
+                    Set Specific Hours
+                  </v-btn>
+                  
+                  <v-btn
+                    variant="outlined"
+                    size="small"
+                    color="#dc3545"
+                    @click="dayForm.isAvailable = false; dayForm.timeRanges = []"
+                    :class="{ 'selected-option': !dayForm.isAvailable }"
+                    class="option-btn"
+                  >
+                    <v-icon size="16" class="mr-1">mdi-clock-remove</v-icon>
+                    Not Available
+                  </v-btn>
+                </div>
+              </div>
+              <!-- Time Range Inputs (only show if specific hours selected) -->
+              <div v-if="dayForm.isAvailable && dayForm.timeRanges.length > 0" class="time-ranges-section">
+                <div 
+                  v-for="(range, rangeIndex) in dayForm.timeRanges" 
+                  :key="`${dayForm.day}-${rangeIndex}`"
+                  class="time-range-input"
+                >
                 <div class="time-input-row">
                   <div class="time-selects">
-                    <v-select
+                    <v-combobox
                       v-model="range.startTime"
                       :items="timeOptions"
-                      label="Start"
+                      label="Start Time"
                       density="compact"
                       variant="outlined"
                       :disabled="loading"
                       class="time-select"
                       hide-details
-                    ></v-select>
+                      placeholder="e.g., 9:30 AM"
+                      :error="range.startTime && !validateTimeInput(range.startTime)"
+                      @blur="range.startTime = formatTimeInput(range.startTime)"
+                      :filter="(item, queryText) => {
+                        return item.toLowerCase().includes(queryText.toLowerCase())
+                      }"
+                    >
+                      <template v-slot:message v-if="range.startTime && !validateTimeInput(range.startTime)">
+                        <span class="text-error">Please enter time in format: 9:30 AM</span>
+                      </template>
+                    </v-combobox>
                     
                     <span class="time-separator">to</span>
                     
-                    <v-select
+                    <v-combobox
                       v-model="range.endTime"
                       :items="timeOptions"
-                      label="End"
+                      label="End Time"
                       density="compact"
                       variant="outlined"
                       :disabled="loading"
                       class="time-select"
                       hide-details
-                    ></v-select>
+                      placeholder="e.g., 5:30 PM"
+                      :error="range.endTime && !validateTimeInput(range.endTime)"
+                      @blur="range.endTime = formatTimeInput(range.endTime)"
+                      :filter="(item, queryText) => {
+                        return item.toLowerCase().includes(queryText.toLowerCase())
+                      }"
+                    >
+                      <template v-slot:message v-if="range.endTime && !validateTimeInput(range.endTime)">
+                        <span class="text-error">Please enter time in format: 5:30 PM</span>
+                      </template>
+                    </v-combobox>
                   </div>
                   
                   <div class="range-actions">
@@ -607,38 +700,23 @@ onMounted(async () => {
                   </div>
                 </div>
                 
-                <!-- Validation Error -->
-                <div v-if="validateTimeRanges(dayForm)" class="validation-error">
-                  {{ validateTimeRanges(dayForm) }}
+                  <!-- Validation Error -->
+                  <div v-if="validateTimeRanges(dayForm)" class="validation-error">
+                    {{ validateTimeRanges(dayForm) }}
+                  </div>
                 </div>
               </div>
 
-              <!-- Action Buttons -->
-              <div class="input-actions">
-                <v-btn
-                  variant="outlined"
-                  size="small"
-                  color="#28a745"
-                  @click="dayForm.timeRanges = []; showTimeInputs[dayIndex] = false"
-                  class="mr-2"
-                >
-                  Set 24/7 Available
-                </v-btn>
-                <v-btn
-                  variant="outlined"
-                  size="small"
-                  color="#dc3545"
-                  @click="dayForm.isAvailable = false; dayForm.timeRanges = []; showTimeInputs[dayIndex] = false"
-                  class="mr-2"
-                >
-                  Mark Unavailable
-                </v-btn>
+              <!-- Close Button -->
+              <div class="close-actions">
                 <v-btn
                   variant="contained"
                   size="small"
                   color="#2c3e50"
                   @click="showTimeInputs[dayIndex] = false"
+                  class="close-btn"
                 >
+                  <v-icon size="16" class="mr-1">mdi-check</v-icon>
                   Done
                 </v-btn>
               </div>
@@ -824,6 +902,20 @@ onMounted(async () => {
   padding: 1.5rem 2rem;
   gap: 2rem;
   background: transparent;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  border-radius: 1rem;
+}
+
+.day-row:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+  background: rgba(44, 62, 80, 0.02);
+}
+
+.day-row.expanded {
+  background: rgba(44, 62, 80, 0.05);
 }
 
 @media (max-width: 768px) {
@@ -832,11 +924,28 @@ onMounted(async () => {
     gap: 1rem;
     text-align: center;
   }
+
+  .quick-options {
+    flex-direction: column;
+  }
+
+  .option-btn {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 .day-info {
   display: flex;
   flex-direction: column;
+}
+
+.click-hint {
+  font-size: 0.75rem;
+  color: #6c757d;
+  margin: 0;
+  font-style: italic;
+  margin-top: 0.25rem;
 }
 
 .day-name {
@@ -858,6 +967,20 @@ onMounted(async () => {
   font-size: 0.9rem !important;
   padding: 0.5rem 1rem !important;
   border-radius: 1.5rem !important;
+}
+
+.expand-indicator {
+  display: flex;
+  align-items: center;
+}
+
+.expand-icon {
+  color: #6c757d;
+  transition: transform 0.3s ease;
+}
+
+.expand-icon.rotated {
+  transform: rotate(180deg);
 }
 
 .day-actions {
@@ -891,6 +1014,56 @@ onMounted(async () => {
   border-radius: 0.75rem !important;
   border: 2px solid #dee2e6 !important;
   transition: border-color 0.2s ease, background-color 0.2s ease !important;
+}
+
+.availability-options {
+  margin-bottom: 1.5rem;
+}
+
+.options-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin: 0 0 1rem 0;
+}
+
+.quick-options {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.option-btn {
+  text-transform: none;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.option-btn.selected-option {
+  background-color: #2c3e50 !important;
+  color: white !important;
+  border-color: #2c3e50 !important;
+}
+
+.time-ranges-section {
+  border-top: 1px solid #e9ecef;
+  padding-top: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.close-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e9ecef;
+}
+
+.close-btn {
+  background-color: #2c3e50 !important;
+  color: white !important;
+  font-weight: 500;
+  text-transform: none;
 }
 
 .edit-btn:hover {
@@ -941,6 +1114,61 @@ onMounted(async () => {
 .time-select {
   flex: 1;
   max-width: 150px;
+}
+
+/* Enhanced styling for combobox inputs */
+.time-select :deep(.v-field__input) {
+  font-weight: 500;
+  color: #2c3e50;
+}
+
+.time-select :deep(.v-field__input::placeholder) {
+  color: #6c757d !important;
+  opacity: 0.8;
+}
+
+.time-select :deep(.v-field--error) {
+  border-color: #dc3545 !important;
+}
+
+.time-select :deep(.v-input--error .v-field__outline__start),
+.time-select :deep(.v-input--error .v-field__outline__notch),
+.time-select :deep(.v-input--error .v-field__outline__end) {
+  border-color: #dc3545 !important;
+}
+
+.time-select :deep(.v-input--focused .v-field__outline__start),
+.time-select :deep(.v-input--focused .v-field__outline__notch),
+.time-select :deep(.v-input--focused .v-field__outline__end) {
+  border-color: #2c3e50 !important;
+  border-width: 2px;
+}
+
+/* Improve dropdown list styling */
+.time-select :deep(.v-list) {
+  max-height: 300px !important;
+}
+
+.time-select :deep(.v-list-item) {
+  padding: 8px 16px !important;
+  font-weight: 500;
+}
+
+.time-select :deep(.v-list-item:hover) {
+  background-color: #f8f9fa !important;
+}
+
+.time-select :deep(.v-list-item--active) {
+  background-color: #e3f2fd !important;
+  color: #1976d2 !important;
+}
+
+/* Input hints and help text */
+.time-input-hint {
+  font-size: 0.75rem;
+  color: #6c757d;
+  margin-top: 0.25rem;
+  font-style: italic;
 }
 
 .time-separator {
