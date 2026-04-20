@@ -1156,6 +1156,7 @@ export default {
     const taskListItemsMap = ref({});
     const newItemDescription = ref({});
     const shiftItemStatuses = ref({});
+    const shiftTaskProgressMap = ref({});
     const showAddWorkerDialog = ref(false);
     const addWorkerEmail = ref("");
     const addWorkerPositionId = ref(null);
@@ -1428,6 +1429,114 @@ export default {
       viewMode.value = 'overview';
       activeScheduleId.value = null;
       shifts.value = [];
+      shiftTaskProgressMap.value = {};
+    };
+
+    const getShiftProgress = (shiftId) => {
+      return shiftTaskProgressMap.value[Number(shiftId)] || {
+        completed: 0,
+        total: 0,
+        percent: 0,
+        hasTasks: false,
+        incompleteCount: 0,
+        incompletePreview: "None",
+      };
+    };
+
+    const buildShiftTaskProgressMap = async (shiftList) => {
+      if (!Array.isArray(shiftList) || shiftList.length === 0) {
+        shiftTaskProgressMap.value = {};
+        return;
+      }
+
+      // Cache task items so shared task lists are only loaded once.
+      const taskItemsCache = {};
+
+      const progressRows = await Promise.all(
+        shiftList.map(async (shift) => {
+          const shiftId = Number(shift.shift_id);
+          try {
+            const [shiftTasksRes, statusesRes] = await Promise.all([
+              TaskServices.getShiftTasks({ shift_id: shiftId }),
+              TaskListItemStatusServices.getAll({ shift_id: shiftId }),
+            ]);
+
+            const shiftTasks = shiftTasksRes.data || [];
+            const statuses = statusesRes.data || [];
+
+            const allItems = [];
+            for (const st of shiftTasks) {
+              const taskId = Number(st.task_id);
+              if (!Number.isFinite(taskId)) continue;
+
+              if (taskItemsCache[taskId] == null) {
+                try {
+                  const itemsRes = await TaskListItemServices.getAll({ task_id: taskId });
+                  taskItemsCache[taskId] = itemsRes.data || [];
+                } catch (e) {
+                  taskItemsCache[taskId] = [];
+                }
+              }
+              allItems.push(...taskItemsCache[taskId]);
+            }
+
+            const completedMap = {};
+            for (const s of statuses) {
+              completedMap[Number(s.task_list_item_id)] = !!s.is_completed;
+            }
+
+            const incompleteItems = allItems.filter(
+              (item) => !completedMap[Number(item.task_list_item_id)]
+            );
+
+            const total = allItems.length;
+            const completed = total - incompleteItems.length;
+            const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+            const incompleteNames = incompleteItems
+              .map((item) => String(item.description || "Unnamed task").trim())
+              .filter(Boolean);
+            const previewItems = incompleteNames.slice(0, 2).map((name) =>
+              name.length > 28 ? `${name.slice(0, 28)}...` : name
+            );
+            const remainder = Math.max(0, incompleteNames.length - previewItems.length);
+            const incompletePreview =
+              incompleteNames.length === 0
+                ? "None"
+                : `${previewItems.join(", ")}${remainder > 0 ? ` +${remainder} more` : ""}`;
+
+            return [
+              shiftId,
+              {
+                completed,
+                total,
+                percent,
+                hasTasks: total > 0,
+                incompleteCount: incompleteNames.length,
+                incompletePreview,
+              },
+            ];
+          } catch (e) {
+            return [
+              shiftId,
+              {
+                completed: 0,
+                total: 0,
+                percent: 0,
+                hasTasks: false,
+                incompleteCount: 0,
+                incompletePreview: "None",
+              },
+            ];
+          }
+        })
+      );
+
+      const map = {};
+      for (const [shiftId, progress] of progressRows) {
+        map[shiftId] = progress;
+      }
+      shiftTaskProgressMap.value = map;
     };
 
     const calendarEvents = computed(() => {
@@ -1437,6 +1546,15 @@ export default {
         const date = toDateOnly(shift.shift_date);
         const start = toTimeOnly(shift.start_time);
         const end = toTimeOnly(shift.end_time);
+        const progress = getShiftProgress(shift.shift_id);
+        const completionText = progress.hasTasks
+          ? `${progress.completed}/${progress.total} (${progress.percent}%)`
+          : "No tasks";
+        const incompleteText = progress.hasTasks
+          ? progress.incompleteCount > 0
+            ? progress.incompletePreview
+            : "None"
+          : "None";
 
         const eventClass =
           activeSchedule.value.status !== "live"
@@ -1449,7 +1567,7 @@ export default {
           start: combineDateTime(date, start),
           end: combineDateTime(date, end),
           title: `${getWorkerLabel(shift.user_id)}`,
-          content: "",
+          content: `${getPositionLabel(shift.position_id)}\nTask List Completion: ${completionText}\nIncomplete: ${incompleteText}`,
           class: eventClass,
           shift_id: shift.shift_id,
         };
@@ -2700,14 +2818,18 @@ export default {
     const fetchShifts = async (scheduleId) => {
       if (!scheduleId) {
         shifts.value = [];
+        shiftTaskProgressMap.value = {};
         return;
       }
 
       try {
         const response = await ShiftServices.getBySchedule(scheduleId);
-        shifts.value = response.data || [];
+        const fetchedShifts = response.data || [];
+        shifts.value = fetchedShifts;
+        await buildShiftTaskProgressMap(fetchedShifts);
       } catch (error) {
         shifts.value = [];
+        shiftTaskProgressMap.value = {};
         console.error("Error fetching shifts:", error);
       }
     };
