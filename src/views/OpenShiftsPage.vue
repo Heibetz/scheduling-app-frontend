@@ -12,15 +12,7 @@
       </v-card-text>
     </v-card>
 
-    <v-card class="section-card" elevation="0" rounded="lg">
-      <v-card-title class="section-card__title">Trade Requests</v-card-title>
-      <v-card-subtitle class="pb-2">
-        Private requests from coworkers who want to trade a shift with you.
-      </v-card-subtitle>
-      <v-card-text>
-        <TradeRequests ref="tradeRequestsRef" @updated="onTradeUpdated" />
-      </v-card-text>
-    </v-card>
+    
   </v-container>
 </template>
 
