@@ -961,17 +961,44 @@
     <v-dialog v-model="showAddWorkerDialog" max-width="520px">
       <v-card>
         <v-card-title class="pa-4">
-          <span class="text-h6">Add Worker by Email</span>
+          <span class="text-h6">{{ createWorkerMode ? 'Create New Worker' : 'Add Existing Worker' }}</span>
         </v-card-title>
         <v-card-text>
-          <v-text-field
-            v-model="addWorkerEmail"
-            label="User Email"
-            placeholder="Enter worker's email address"
-            :rules="[v => !!v || 'Email is required']"
-            required
-            autofocus
-          />
+          <!-- Add existing worker by email -->
+          <template v-if="!createWorkerMode">
+            <v-text-field
+              v-model="addWorkerEmail"
+              label="User Email"
+              placeholder="Enter worker's email address"
+              :rules="[v => !!v || 'Email is required']"
+              required
+              autofocus
+            />
+          </template>
+          <!-- Create new worker -->
+          <template v-else>
+            <div class="d-flex ga-3">
+              <v-text-field
+                v-model="newWorkerFName"
+                label="First Name"
+                required
+                class="flex-grow-1"
+                autofocus
+              />
+              <v-text-field
+                v-model="newWorkerLName"
+                label="Last Name"
+                required
+                class="flex-grow-1"
+              />
+            </div>
+            <v-text-field
+              v-model="newWorkerEmail"
+              label="Email"
+              type="email"
+              required
+            />
+          </template>
           <v-select
             v-model="addWorkerPositionId"
             :items="areaPositions"
@@ -981,12 +1008,17 @@
             required
           />
           <v-alert v-if="addWorkerError" type="error" class="mt-2" density="compact">{{ addWorkerError }}</v-alert>
+          <v-alert v-if="createWorkerError" type="error" class="mt-2" density="compact">{{ createWorkerError }}</v-alert>
           <v-alert v-if="addWorkerSuccess" type="success" class="mt-2" density="compact">{{ addWorkerSuccess }}</v-alert>
         </v-card-text>
         <v-card-actions class="pa-4">
+          <v-btn variant="tonal" color="primary" @click="createWorkerMode = !createWorkerMode">
+            {{ createWorkerMode ? 'Add Existing Worker' : 'Create New Worker' }}
+          </v-btn>
           <v-spacer />
-          <v-btn text @click="showAddWorkerDialog = false">Cancel</v-btn>
-          <v-btn color="primary" :loading="savingWorker" @click="saveWorker">Add</v-btn>
+          <v-btn variant="text" @click="showAddWorkerDialog = false">Cancel</v-btn>
+          <v-btn v-if="!createWorkerMode" color="primary" :loading="savingWorker" @click="saveWorker">Add</v-btn>
+          <v-btn v-else color="primary" :loading="savingNewWorker" @click="saveNewWorker">Create & Add</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -1162,6 +1194,13 @@ export default {
     const addWorkerError = ref("");
     const addWorkerSuccess = ref("");
     const savingWorker = ref(false);
+
+    const createWorkerMode = ref(false);
+    const newWorkerFName = ref("");
+    const newWorkerLName = ref("");
+    const newWorkerEmail = ref("");
+    const createWorkerError = ref("");
+    const savingNewWorker = ref(false);
 
     const allPositionUsers = ref([]);
     const showEditWorkerDialog = ref(false);
@@ -2269,6 +2308,11 @@ export default {
       addWorkerPositionId.value = areaPositions.value[0]?.position_id || null;
       addWorkerError.value = "";
       addWorkerSuccess.value = "";
+      createWorkerMode.value = false;
+      newWorkerFName.value = "";
+      newWorkerLName.value = "";
+      newWorkerEmail.value = "";
+      createWorkerError.value = "";
       showAddWorkerDialog.value = true;
     };
 
@@ -2325,6 +2369,67 @@ export default {
         addWorkerError.value = error?.response?.data?.message || "Failed to add worker.";
       } finally {
         savingWorker.value = false;
+      }
+    };
+
+    const saveNewWorker = async () => {
+      createWorkerError.value = "";
+      addWorkerSuccess.value = "";
+
+      if (!newWorkerFName.value.trim()) {
+        createWorkerError.value = "First name is required.";
+        return;
+      }
+      if (!newWorkerLName.value.trim()) {
+        createWorkerError.value = "Last name is required.";
+        return;
+      }
+      if (!newWorkerEmail.value.trim()) {
+        createWorkerError.value = "Email is required.";
+        return;
+      }
+      if (!addWorkerPositionId.value) {
+        createWorkerError.value = "Please select a position.";
+        return;
+      }
+
+      savingNewWorker.value = true;
+      try {
+        const usersRes = await UserServices.getAll();
+        const existingUser = usersRes.data.find(
+          (u) => u.email.toLowerCase() === newWorkerEmail.value.trim().toLowerCase()
+        );
+        if (existingUser) {
+          createWorkerError.value = "A user with that email already exists. Use 'Add Existing Worker' instead.";
+          return;
+        }
+
+        const createRes = await UserServices.create({
+          fName: newWorkerFName.value.trim(),
+          lName: newWorkerLName.value.trim(),
+          email: newWorkerEmail.value.trim().toLowerCase(),
+        });
+        const newUser = createRes.data;
+
+        await PositionUserServices.create({
+          position_id: addWorkerPositionId.value,
+          user_id: newUser.user_id,
+          is_active: true,
+        });
+
+        addWorkerSuccess.value = `${newUser.fName} ${newUser.lName} has been created and added.`;
+        newWorkerFName.value = "";
+        newWorkerLName.value = "";
+        newWorkerEmail.value = "";
+        createWorkerMode.value = false;
+
+        const puRes = await PositionUserServices.getAll();
+        const allPosRes = await PositionServices.getAll();
+        await fetchAreaWorkers(area.value.area_id, allPosRes.data, puRes.data);
+      } catch (error) {
+        createWorkerError.value = error?.response?.data?.message || "Failed to create worker.";
+      } finally {
+        savingNewWorker.value = false;
       }
     };
 
@@ -2938,6 +3043,13 @@ export default {
       savingWorker,
       openAddWorkerDialog,
       saveWorker,
+      createWorkerMode,
+      newWorkerFName,
+      newWorkerLName,
+      newWorkerEmail,
+      createWorkerError,
+      savingNewWorker,
+      saveNewWorker,
       showEditWorkerDialog,
       showRemoveWorkerConfirm,
       editingWorker,
