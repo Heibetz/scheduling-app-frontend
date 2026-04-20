@@ -68,7 +68,7 @@
                   @click="enterTemplateEditor(tmpl.template_id)"
                 >
                   <v-icon start>mdi-file-document-outline</v-icon>
-                  {{ tmpl.template_name }}
+                  {{ tmpl.template_name }} ({{ tmpl.duration_weeks || 1 }}w)
                 </v-chip>
               </div>
             </div>
@@ -112,13 +112,32 @@
               />
             </div>
 
+            <div v-if="templateTotalWeeks > 1" class="d-flex align-center justify-center ga-3 mb-3">
+              <v-btn
+                icon
+                variant="text"
+                :disabled="currentTemplateWeek === 0"
+                @click="currentTemplateWeek--"
+              >
+                <v-icon>mdi-chevron-left</v-icon>
+              </v-btn>
+              <span class="text-h6 font-weight-bold">Week {{ currentTemplateWeek + 1 }} of {{ templateTotalWeeks }}</span>
+              <v-btn
+                icon
+                variant="text"
+                :disabled="currentTemplateWeek >= templateTotalWeeks - 1"
+                @click="currentTemplateWeek++"
+              >
+                <v-icon>mdi-chevron-right</v-icon>
+              </v-btn>
+            </div>
+
             <vue-cal
               class="manager-calendar hide-nav-arrows"
               :events="templateCalendarEvents"
               :selected-date="templateReferenceDate"
               active-view="week"
               :twelve-hour="true"
-              :start-week-on-sunday="true"
               :disable-views="['years', 'year', 'month', 'day']"
               :drag-to-create-event="true"
               :editable-events="calendarEditConfig"
@@ -505,11 +524,11 @@
           />
 
           <v-select
-            v-model="templateForm.duration_type"
+            v-model="templateForm.duration_weeks"
             :items="[
-              { label: '1 Week (7 days)', value: 'weekly' },
-              { label: '2 Weeks (14 days)', value: 'bi-weekly' },
-              { label: 'Custom (define later)', value: 'custom' },
+              { label: '1 Week', value: 1 },
+              { label: '2 Weeks', value: 2 },
+              { label: '3 Weeks', value: 3 },
             ]"
             item-title="label"
             item-value="value"
@@ -573,9 +592,11 @@
             clearable
           />
 
-          <template v-if="editingTemplateShiftId">
-            <div class="mt-4">
-              <span class="text-subtitle-2">Assigned Task Lists</span>
+          <div class="mt-4">
+            <span class="text-subtitle-2">Assigned Task Lists</span>
+
+            <!-- Existing shift: show saved tasks -->
+            <template v-if="editingTemplateShiftId">
               <div v-if="templateShiftAssignedTasks.length > 0" class="mt-2">
                 <v-chip-group>
                   <v-chip
@@ -591,31 +612,51 @@
                 </v-chip-group>
               </div>
               <div v-else class="text-grey text-caption mt-1">No task lists assigned.</div>
-              <div class="d-flex align-center ga-2 mt-2">
-                <v-select
-                  v-model="templateShiftSelectedTaskId"
-                  :items="templateShiftAvailableTasks"
-                  item-title="task_name"
-                  item-value="task_id"
-                  label="Assign task list"
-                  density="compact"
-                  hide-details
-                  class="flex-grow-1"
-                  clearable
-                />
-                <v-btn
-                  size="small"
-                  color="primary"
-                  variant="tonal"
-                  :disabled="!templateShiftSelectedTaskId"
-                  @click="addTemplateShiftTask(editingTemplateShiftId)"
-                >
-                  <v-icon start>mdi-plus</v-icon>
-                  Add
-                </v-btn>
+            </template>
+
+            <!-- New shift: show pending tasks -->
+            <template v-else>
+              <div v-if="pendingTemplateTasks.length > 0" class="mt-2">
+                <v-chip-group>
+                  <v-chip
+                    v-for="taskId in pendingTemplateTasks"
+                    :key="taskId"
+                    closable
+                    @click:close="removePendingTemplateTask(taskId)"
+                    color="primary"
+                    variant="tonal"
+                  >
+                    {{ getTaskName(taskId) }}
+                  </v-chip>
+                </v-chip-group>
               </div>
+              <div v-else class="text-grey text-caption mt-1">No task lists assigned yet.</div>
+            </template>
+
+            <div class="d-flex align-center ga-2 mt-2">
+              <v-select
+                v-model="templateShiftSelectedTaskId"
+                :items="templateShiftAvailableTasks"
+                item-title="task_name"
+                item-value="task_id"
+                label="Assign task list"
+                density="compact"
+                hide-details
+                class="flex-grow-1"
+                clearable
+              />
+              <v-btn
+                size="small"
+                color="primary"
+                variant="tonal"
+                :disabled="!templateShiftSelectedTaskId"
+                @click="editingTemplateShiftId ? addTemplateShiftTask(editingTemplateShiftId) : addPendingTemplateTask()"
+              >
+                <v-icon start>mdi-plus</v-icon>
+                Add
+              </v-btn>
             </div>
-          </template>
+          </div>
 
           <v-alert v-if="templateShiftError" type="error" density="compact" class="mt-2">{{ templateShiftError }}</v-alert>
         </v-card-text>
@@ -1127,7 +1168,7 @@ export default {
     const editingTemplate = ref(null);
     const templateForm = ref({
       template_name: "",
-      duration_type: "weekly",
+      duration_weeks: 1,
     });
     const savingTemplate = ref(false);
     const templateError = ref("");
@@ -1144,9 +1185,11 @@ export default {
     const savingTemplateShift = ref(false);
     const templateShiftError = ref("");
     const templateShiftSelectedTaskId = ref(null);
+    const pendingTemplateTasks = ref([]);
     const defaultTemplateShiftHours = ref(8);
     const templatePendingDeleteFn = ref(null);
     const templateSkipCellClick = ref(false);
+    const currentTemplateWeek = ref(0);
 
     const showShiftDialog = ref(false);
     const shiftForm = ref({
@@ -1849,21 +1892,37 @@ export default {
       }
     };
 
+    const templateTotalWeeks = computed(() => {
+      return editingTemplate.value?.duration_weeks || 1;
+    });
+
     const templateReferenceDate = computed(() => {
       const today = new Date();
       const day = today.getDay();
-      const diff = today.getDate() - day;
-      return new Date(today.getFullYear(), today.getMonth(), diff);
+      // Find this week's Monday (day=1). If today is Sunday(0), go back 6 days.
+      const diff = day === 0 ? -6 : 1 - day;
+      const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + diff);
+      // Shift by currentTemplateWeek
+      monday.setDate(monday.getDate() + currentTemplateWeek.value * 7);
+      return monday;
     });
 
     const templateCalendarEvents = computed(() => {
       if (!editingTemplate.value?.templateShifts) return [];
-      const refSunday = templateReferenceDate.value;
-      console.log('[Template Events] refSunday:', refSunday, 'shifts:', editingTemplate.value.templateShifts.length);
+      const refMonday = templateReferenceDate.value;
+      const weekIdx = currentTemplateWeek.value;
 
-      return editingTemplate.value.templateShifts.map((ts) => {
-        const dayDate = new Date(refSunday);
-        dayDate.setDate(dayDate.getDate() + ts.day_of_week);
+      // Filter shifts belonging to current week
+      const weekShifts = editingTemplate.value.templateShifts.filter((ts) => {
+        return Math.floor(ts.day_of_week / 7) === weekIdx;
+      });
+
+      return weekShifts.map((ts) => {
+        const actualDay = ts.day_of_week % 7; // JS getDay: 0=Sun,1=Mon,...,6=Sat
+        // Map to calendar date: Monday is offset 0, Sunday is offset 6
+        const dayOffset = actualDay === 0 ? 6 : actualDay - 1;
+        const dayDate = new Date(refMonday);
+        dayDate.setDate(dayDate.getDate() + dayOffset);
         const dateStr = toDateOnly(dayDate);
 
         const workerName = ts.user
@@ -1872,7 +1931,7 @@ export default {
 
         const eventClass = ts.user_id ? 'shift-live-covered' : 'shift-draft';
 
-        const evt = {
+        return {
           start: combineDateTime(dateStr, (ts.start_time || '').slice(0, 5)),
           end: combineDateTime(dateStr, (ts.end_time || '').slice(0, 5)),
           title: workerName,
@@ -1880,8 +1939,6 @@ export default {
           class: eventClass,
           template_shift_id: ts.template_shift_id,
         };
-        console.log('[Template Event]', { day_of_week: ts.day_of_week, dateStr, start: evt.start, end: evt.end, title: evt.title });
-        return evt;
       });
     });
 
@@ -1894,14 +1951,16 @@ export default {
     });
 
     const templateShiftAvailableTasks = computed(() => {
-      const assignedIds = templateShiftAssignedTasks.value.map((tst) => Number(tst.task_id));
+      const assignedIds = editingTemplateShiftId.value
+        ? templateShiftAssignedTasks.value.map((tst) => Number(tst.task_id))
+        : pendingTemplateTasks.value.map(Number);
       return areaTasks.value.filter((t) => !assignedIds.includes(Number(t.task_id)));
     });
 
     const openCreateTemplateDialog = () => {
       templateForm.value = {
         template_name: "",
-        duration_type: "weekly",
+        duration_weeks: 1,
       };
       templateError.value = "";
       showCreateTemplateDialog.value = true;
@@ -1924,6 +1983,7 @@ export default {
         const payload = {
           area_id: area.value.area_id,
           template_name: templateForm.value.template_name.trim(),
+          duration_weeks: templateForm.value.duration_weeks || 1,
         };
 
         const response = await ScheduleTemplateServices.create(payload);
@@ -1941,6 +2001,7 @@ export default {
       try {
         const response = await ScheduleTemplateServices.get(templateId);
         editingTemplate.value = response.data;
+        currentTemplateWeek.value = 0;
         await fetchAreaTasks();
         await fetchAllTaskListItems();
         viewMode.value = 'template';
@@ -1985,8 +2046,11 @@ export default {
         };
       } else {
         editingTemplateShiftId.value = null;
+        pendingTemplateTasks.value = [];
+        const jsDay = start ? start.getDay() : 1;
+        const templateDay = jsDay + currentTemplateWeek.value * 7;
         templateShiftForm.value = {
-          day_of_week: start ? start.getDay() : 0,
+          day_of_week: templateDay,
           position_id: areaPositions.value[0]?.position_id || null,
           start_time: toTimeOnly(start),
           end_time: toTimeOnly(end),
@@ -1995,6 +2059,17 @@ export default {
       }
 
       showTemplateShiftDialog.value = true;
+    };
+
+    const addPendingTemplateTask = () => {
+      const taskId = templateShiftSelectedTaskId.value;
+      if (!taskId || pendingTemplateTasks.value.includes(taskId)) return;
+      pendingTemplateTasks.value.push(taskId);
+      templateShiftSelectedTaskId.value = null;
+    };
+
+    const removePendingTemplateTask = (taskId) => {
+      pendingTemplateTasks.value = pendingTemplateTasks.value.filter((id) => id !== taskId);
     };
 
     const handleTemplateEventCreate = (event, deleteEventFunction) => {
@@ -2070,7 +2145,14 @@ export default {
             editingTemplate.value.template_id, editingTemplateShiftId.value, payload
           );
         } else {
-          await ScheduleTemplateServices.createShift(editingTemplate.value.template_id, payload);
+          const createRes = await ScheduleTemplateServices.createShift(editingTemplate.value.template_id, payload);
+          const newShiftId = createRes.data?.template_shift_id;
+          if (newShiftId && pendingTemplateTasks.value.length > 0) {
+            for (const taskId of pendingTemplateTasks.value) {
+              await ScheduleTemplateServices.createShiftTask(editingTemplate.value.template_id, newShiftId, { task_id: taskId });
+            }
+            pendingTemplateTasks.value = [];
+          }
         }
         showTemplateShiftDialog.value = false;
         await reloadEditingTemplate();
@@ -2120,6 +2202,11 @@ export default {
 
     const getDayOfWeekLabel = (day) => {
       const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      if (day > 6) {
+        const weekNum = Math.floor(day / 7) + 1;
+        const dayName = days[day % 7] || 'Unknown';
+        return `${dayName} (Week ${weekNum})`;
+      }
       return days[day] || 'Unknown';
     };
 
@@ -2131,9 +2218,8 @@ export default {
 
     const getTemplateDurationDays = (templateId) => {
       const tmpl = templates.value.find(t => Number(t.template_id) === Number(templateId));
-      if (!tmpl?.templateShifts?.length) return 7;
-      const maxDay = Math.max(...tmpl.templateShifts.map(ts => ts.day_of_week));
-      return maxDay < 7 ? 7 : 14;
+      const weeks = tmpl?.duration_weeks || 1;
+      return weeks * 7;
     };
 
     const computeTemplateEndDate = () => {
@@ -3221,6 +3307,11 @@ export default {
       handleTemplateSelection,
       templateStartDateError,
       onScheduleStartDateChange,
+      currentTemplateWeek,
+      templateTotalWeeks,
+      pendingTemplateTasks,
+      addPendingTemplateTask,
+      removePendingTemplateTask,
     };
   },
 };
