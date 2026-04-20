@@ -576,7 +576,7 @@
 
           <v-select
             v-model="templateShiftForm.position_id"
-            :items="areaPositions"
+            :items="templateFilteredPositions"
             item-title="position_name"
             item-value="position_id"
             label="Position"
@@ -585,9 +585,9 @@
 
           <v-select
             v-model="templateShiftForm.user_id"
-            :items="[{ user_id: null, label: 'Open (unassigned)' }, ...workers.map(w => ({ user_id: w.user_id, label: `${w.fName} ${w.lName}` }))]"
-            item-title="label"
-            item-value="user_id"
+            :items="templateWorkerOptions"
+            item-title="title"
+            item-value="value"
             label="Assign Worker (optional)"
             clearable
           />
@@ -1464,6 +1464,50 @@ export default {
         (pu) => Number(pu.user_id) === Number(newUserId) && Number(pu.position_id) === Number(shiftForm.value.position_id)
       );
       if (!valid) shiftForm.value.position_id = null;
+    });
+
+    // Template shift: filter workers by selected position
+    const templateWorkerOptions = computed(() => {
+      const posId = templateShiftForm.value?.position_id;
+      let filtered = workers.value;
+      if (posId) {
+        const userIdsForPosition = allPositionUsers.value
+          .filter((pu) => Number(pu.position_id) === Number(posId))
+          .map((pu) => Number(pu.user_id));
+        filtered = workers.value.filter((w) => userIdsForPosition.includes(Number(w.user_id)));
+      }
+      return [
+        { title: 'Open (unassigned)', value: null },
+        ...filtered.map((w) => ({ title: `${w.fName} ${w.lName}`, value: w.user_id })),
+      ];
+    });
+
+    // Template shift: filter positions by selected worker
+    const templateFilteredPositions = computed(() => {
+      const userId = templateShiftForm.value?.user_id;
+      if (!userId) return areaPositions.value;
+      const posIdsForUser = allPositionUsers.value
+        .filter((pu) => Number(pu.user_id) === Number(userId))
+        .map((pu) => Number(pu.position_id));
+      return areaPositions.value.filter((p) => posIdsForUser.includes(Number(p.position_id)));
+    });
+
+    // Template shift: clear worker if they don't hold the newly selected position
+    watch(() => templateShiftForm.value?.position_id, (newPosId) => {
+      if (!newPosId || !templateShiftForm.value?.user_id) return;
+      const valid = allPositionUsers.value.some(
+        (pu) => Number(pu.position_id) === Number(newPosId) && Number(pu.user_id) === Number(templateShiftForm.value.user_id)
+      );
+      if (!valid) templateShiftForm.value.user_id = null;
+    });
+
+    // Template shift: clear position if the newly selected worker doesn't hold it
+    watch(() => templateShiftForm.value?.user_id, (newUserId) => {
+      if (!newUserId || !templateShiftForm.value?.position_id) return;
+      const valid = allPositionUsers.value.some(
+        (pu) => Number(pu.user_id) === Number(newUserId) && Number(pu.position_id) === Number(templateShiftForm.value.position_id)
+      );
+      if (!valid) templateShiftForm.value.position_id = null;
     });
 
     const SCHEDULE_COLORS = [
@@ -3312,6 +3356,8 @@ export default {
       pendingTemplateTasks,
       addPendingTemplateTask,
       removePendingTemplateTask,
+      templateWorkerOptions,
+      templateFilteredPositions,
     };
   },
 };
