@@ -459,17 +459,28 @@
 
           <v-text-field
             v-model="scheduleForm.start_date"
-            label="Start Date"
+            :label="scheduleForm.template_id ? 'Start Date (must be a Monday)' : 'Start Date'"
             type="date"
             required
+            :error-messages="templateStartDateError"
+            @update:model-value="onScheduleStartDateChange"
           />
 
           <v-text-field
-            v-if="scheduleForm.template_id || scheduleForm.schedule_type === 'custom'"
+            v-if="scheduleForm.template_id"
+            v-model="scheduleForm.end_date"
+            label="End Date (auto-calculated)"
+            type="date"
+            readonly
+            disabled
+          />
+
+          <v-text-field
+            v-else-if="scheduleForm.schedule_type === 'custom'"
             v-model="scheduleForm.end_date"
             label="End Date"
             type="date"
-            :required="scheduleForm.template_id || scheduleForm.schedule_type === 'custom'"
+            required
           />
 
           <v-alert v-if="scheduleError" type="error" density="compact" class="mt-2">{{ scheduleError }}</v-alert>
@@ -1447,7 +1458,11 @@ export default {
 
     const openCreateScheduleDialog = async () => {
       const today = new Date();
-      const start = toDateOnly(today);
+      const dayOfWeek = today.getDay();
+      const daysUntilMonday = dayOfWeek === 0 ? 1 : dayOfWeek === 1 ? 0 : 8 - dayOfWeek;
+      const nextMonday = new Date(today);
+      nextMonday.setDate(today.getDate() + daysUntilMonday);
+      const start = toDateOnly(nextMonday);
       await fetchTemplates();
       scheduleForm.value = {
         schedule_name: area.value.area_name ? `${area.value.area_name} Schedule` : "New Schedule",
@@ -1480,14 +1495,18 @@ export default {
 
       // If template is selected, apply it
       if (scheduleForm.value.template_id) {
-        let endDate = scheduleForm.value.end_date;
-        const startDateObj = new Date(scheduleForm.value.start_date);
+        const startDateObj = parseLocalDate(scheduleForm.value.start_date);
+        if (startDateObj.getDay() !== 1) {
+          scheduleError.value = "Start date must be a Monday when using a template.";
+          return;
+        }
 
-        // Default to 1 week if no end date
+        let endDate = scheduleForm.value.end_date;
         if (!endDate) {
-          const weeklyEnd = new Date(startDateObj);
-          weeklyEnd.setDate(weeklyEnd.getDate() + 6);
-          endDate = toDateOnly(weeklyEnd);
+          const days = getTemplateDurationDays(scheduleForm.value.template_id);
+          const endDateObj = new Date(startDateObj);
+          endDateObj.setDate(endDateObj.getDate() + days - 1);
+          endDate = toDateOnly(endDateObj);
         }
 
         if (new Date(scheduleForm.value.start_date) > new Date(endDate)) {
@@ -1947,12 +1966,40 @@ export default {
       return days[day] || 'Unknown';
     };
 
+    const templateStartDateError = computed(() => {
+      if (!scheduleForm.value.template_id || !scheduleForm.value.start_date) return '';
+      const d = parseLocalDate(scheduleForm.value.start_date);
+      return d.getDay() !== 1 ? 'Start date must be a Monday when using a template' : '';
+    });
+
+    const getTemplateDurationDays = (templateId) => {
+      const tmpl = templates.value.find(t => Number(t.template_id) === Number(templateId));
+      if (!tmpl?.templateShifts?.length) return 7;
+      const maxDay = Math.max(...tmpl.templateShifts.map(ts => ts.day_of_week));
+      return maxDay < 7 ? 7 : 14;
+    };
+
+    const computeTemplateEndDate = () => {
+      if (!scheduleForm.value.template_id || !scheduleForm.value.start_date) return;
+      const startDateObj = parseLocalDate(scheduleForm.value.start_date);
+      const days = getTemplateDurationDays(scheduleForm.value.template_id);
+      const endDateObj = new Date(startDateObj);
+      endDateObj.setDate(endDateObj.getDate() + days - 1);
+      scheduleForm.value.end_date = toDateOnly(endDateObj);
+    };
+
+    const onScheduleStartDateChange = () => {
+      if (scheduleForm.value.template_id) {
+        computeTemplateEndDate();
+      }
+    };
+
     const handleTemplateSelection = (templateId) => {
-      if (templateId && scheduleForm.value.start_date && !scheduleForm.value.end_date) {
-        const startDateObj = new Date(scheduleForm.value.start_date);
-        const weeklyEnd = new Date(startDateObj);
-        weeklyEnd.setDate(weeklyEnd.getDate() + 6);
-        scheduleForm.value.end_date = toDateOnly(weeklyEnd);
+      if (templateId && scheduleForm.value.start_date) {
+        computeTemplateEndDate();
+      }
+      if (!templateId) {
+        scheduleForm.value.end_date = '';
       }
     };
 
@@ -2938,6 +2985,8 @@ export default {
       deleteTemplateShiftTask,
       getDayOfWeekLabel,
       handleTemplateSelection,
+      templateStartDateError,
+      onScheduleStartDateChange,
     };
   },
 };
