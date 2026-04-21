@@ -723,7 +723,32 @@
             item-value="value"
             label="Assign Worker (optional)"
             clearable
-          />
+          >
+            <template #item="{ item, props }">
+              <v-list-item v-bind="props">
+                <template #title>
+                  <span
+                    :class="{
+                      'text-success font-weight-medium': item.raw.available === true,
+                      'text-error': item.raw.available === false,
+                    }"
+                  >{{ item.raw.title }}</span>
+                </template>
+              </v-list-item>
+            </template>
+            <template #selection="{ item }">
+              <span
+                :class="{
+                  'text-success': item.raw.available === true,
+                  'text-error': item.raw.available === false,
+                }"
+              >{{ item.raw.title }}</span>
+            </template>
+          </v-select>
+          <div class="text-caption text-grey mt-n2 mb-2">
+            <span class="text-success">■</span> Available &nbsp;
+            <span class="text-error">■</span> Unavailable for this shift
+          </div>
 
           <!-- Assigned Task Lists Section -->
           <div class="mt-4">
@@ -1117,6 +1142,7 @@ import PositionUserServices from "../services/positionUserServices";
 import PositionServices from "../services/positionServices";
 import AreaServices from "../services/areaServices";
 import UserServices from "../services/userServices";
+import AvailabilityServices from "../services/availabilityServices";
 import ScheduleServices from "../services/scheduleServices";
 import ScheduleTemplateServices from "../services/scheduleTemplateServices";
 import ShiftServices from "../services/shiftServices";
@@ -1471,7 +1497,11 @@ export default {
           .map((pu) => Number(pu.user_id));
         filtered = workers.value.filter((w) => userIdsForPosition.includes(Number(w.user_id)));
       }
-      return filtered.map((w) => ({ title: `${w.fName} ${w.lName}`, value: w.user_id }));
+      return filtered.map((w) => ({
+        title: `${w.fName} ${w.lName}`,
+        value: w.user_id,
+        available: isWorkerAvailableForShift(w.user_id, shiftForm.value?.shift_date, shiftForm.value?.start_time, shiftForm.value?.end_time),
+      }));
     });
 
     const filteredShiftPositions = computed(() => {
@@ -3147,6 +3177,14 @@ export default {
         const userRes = await UserServices.getAll();
         allUsers.value = userRes.data;
         workers.value = userRes.data.filter((u) => userIds.includes(Number(u.user_id)));
+
+        // Fetch availabilities for all area workers for the shift dialog availability indicator
+        try {
+          const availRes = await AvailabilityServices.getAll();
+          workerAvailabilities.value = availRes.data || [];
+        } catch (e) {
+          workerAvailabilities.value = [];
+        }
       } catch (error) {
         console.error("Error fetching area workers:", error);
       }
