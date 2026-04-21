@@ -335,9 +335,7 @@ const calendarEvents = computed(() => {
   
   const uid = currentUserId.value
   
-  const events = shifts.value
-    .filter(shift => Number(shift.user_id) === uid)
-    .map(shift => {
+  const events = shifts.value.map(shift => {
     const shiftDate = shift.shift_date
     const startTime = shift.start_time
     const endTime = shift.end_time
