@@ -1733,6 +1733,9 @@ export default {
     const calendarEvents = computed(() => {
       if (!activeSchedule.value) return [];
 
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
       return shifts.value.map((shift) => {
         const date = toDateOnly(shift.shift_date);
         const start = toTimeOnly(shift.start_time);
@@ -1754,12 +1757,23 @@ export default {
               ? "shift-live-covered"
               : "shift-live-open";
 
+        const shiftDateOnly = parseLocalDate(shift.shift_date);
+        shiftDateOnly.setHours(0, 0, 0, 0);
+        const isPastShiftWithIncompleteTasks =
+          shiftDateOnly < todayStart && progress.hasTasks && progress.incompleteCount > 0;
+
+        const eventContent = `${getPositionLabel(shift.position_id)} | Tasks: ${completionText}`;
+
         return {
           start: combineDateTime(date, start),
           end: combineDateTime(date, end),
           title: `${getWorkerLabel(shift.user_id)}`,
-          content: `${getPositionLabel(shift.position_id)}`,
-          class: eventClass,
+          content: isPastShiftWithIncompleteTasks
+            ? `${eventContent} | Incomplete`
+            : eventContent,
+          class: isPastShiftWithIncompleteTasks
+            ? `${eventClass} shift-incomplete-past`
+            : eventClass,
           shift_id: shift.shift_id,
         };
       });
@@ -3475,6 +3489,11 @@ export default {
   background-color: #4caf50;
   border-color: #4caf50;
   color: #ffffff;
+}
+
+:deep(.vuecal__event.shift-incomplete-past) {
+  border: 2px solid #d32f2f !important;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
 }
 
 /* Bright highlight for drag-to-create transient event */
