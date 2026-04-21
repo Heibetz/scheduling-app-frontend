@@ -191,7 +191,7 @@ watch(showNotifications, (val) => {
           rounded="lg"
         >
           <v-icon class="nav-icon">mdi-clock-outline</v-icon>
-          Availability
+          Unavailability
         </v-btn>
         
         <v-btn 
