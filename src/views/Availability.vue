@@ -96,6 +96,27 @@ const hasAccess = computed(() => {
   return currentUser.value && !currentUser.value.is_super_admin;
 });
 
+// Calculate total available hours for weekly summary (memoized for performance)
+const totalAvailableHours = computed(() => {
+  let totalHours = 0;
+  for (const dayForm of availabilityForm.value) {
+    if (!dayForm.isAvailable) continue;
+    
+    if (dayForm.timeRanges.length === 0) {
+      totalHours += 24;
+    } else {
+      for (const range of dayForm.timeRanges) {
+        const start = convertTo24Hour(range.startTime).split(':');
+        const end = convertTo24Hour(range.endTime).split(':');
+        const startMinutes = parseInt(start[0]) * 60 + parseInt(start[1]);
+        const endMinutes = parseInt(end[0]) * 60 + parseInt(end[1]);
+        totalHours += (endMinutes - startMinutes) / 60;
+      }
+    }
+  }
+  return Math.round(totalHours * 10) / 10;
+});
+
 // Time options for dropdowns - now with 1-minute increments
 const timeOptions = ref([]);
 const generateTimeOptions = () => {
@@ -485,8 +506,8 @@ onMounted(async () => {
     <!-- Header Section -->
     <div class="page-header">
       <div class="header-content">
-        <h1 class="page-title">My Unavailability</h1>
-        <p class="page-subtitle">Set your weekly unavailable hours</p>
+        <h1 class="page-title">My Availability</h1>
+        <p class="page-subtitle">Set your weekly available hours for scheduling</p>
       </div>
       <v-btn 
         color="#2c3e50"
@@ -497,9 +518,24 @@ onMounted(async () => {
         rounded="lg"
       >
         <v-icon class="mr-2">mdi-clock-check</v-icon>
-        Save Unavailability
+        Save Availability
       </v-btn>
     </div>
+
+    <!-- Weekly Summary Card -->
+    <v-card class="weekly-summary-card" elevation="0" rounded="lg">
+      <v-card-text class="pa-6">
+        <div class="d-flex align-center">
+          <v-icon class="mr-3" size="20" color="#6c757d">mdi-calendar-check</v-icon>
+          <h3 class="summary-title">Weekly Summary</h3>
+        </div>
+        <p class="summary-subtitle">Your total available hours per week</p>
+        <div class="hours-display">
+          <span class="hours-number">{{ totalAvailableHours }}</span>
+          <span class="hours-label">hours available per week</span>
+        </div>
+      </v-card-text>
+    </v-card>
 
     <!-- Days List -->
     <div class="days-container">
@@ -545,7 +581,7 @@ onMounted(async () => {
             <div class="time-ranges-container">
               <!-- Availability Options -->
               <div class="availability-options">
-                <h4 class="options-title">Set Unavailability for {{ dayForm.dayName }}</h4>
+                <h4 class="options-title">Set Availability for {{ dayForm.dayName }}</h4>
                 
                 <div class="quick-options">
                   <v-btn
@@ -570,6 +606,18 @@ onMounted(async () => {
                   >
                     <v-icon size="16" class="mr-1">mdi-clock-outline</v-icon>
                     Set Specific Hours
+                  </v-btn>
+                  
+                  <v-btn
+                    variant="outlined"
+                    size="small"
+                    color="#dc3545"
+                    @click="dayForm.isAvailable = false; dayForm.timeRanges = []"
+                    :class="{ 'selected-option': !dayForm.isAvailable }"
+                    class="option-btn"
+                  >
+                    <v-icon size="16" class="mr-1">mdi-clock-remove</v-icon>
+                    Not Available
                   </v-btn>
                 </div>
               </div>
@@ -781,6 +829,49 @@ onMounted(async () => {
   background-color: #1a252f !important;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(44, 62, 80, 0.3);
+}
+
+.weekly-summary-card {
+  background: white !important;
+  border: 1px solid #e9ecef;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.summary-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #2c3e50;
+  margin: 0;
+}
+
+.summary-subtitle {
+  font-size: 1rem;
+  color: #6c757d;
+  margin: 0.5rem 0 1.5rem 0;
+}
+
+.hours-display {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  background: #e8f5e8;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  border: 2px solid #c3e6cb;
+}
+
+.hours-number {
+  font-size: 3rem;
+  font-weight: 800;
+  color: #28a745;
+  line-height: 1;
+}
+
+.hours-label {
+  font-size: 1rem;
+  color: #155724;
+  font-weight: 600;
 }
 
 .days-container {
