@@ -20,3 +20,4 @@ export default {
     return apiClient.delete(`areas/${id}`);
   },
 };
+//test
