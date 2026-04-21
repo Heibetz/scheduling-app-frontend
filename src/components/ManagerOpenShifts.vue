@@ -84,14 +84,22 @@ const positionOptions = ref([])
 
 const filteredShifts = computed(() => shifts.value)
 
+function shiftDateToLocalNoon(dateString) {
+  const s = String(dateString ?? '')
+  const dateOnly = s.includes('T') ? s.slice(0, 10) : s
+  const [y, m, d] = dateOnly.split('-').map((v) => Number(v))
+  // Build a local date at noon so timezone conversion can't roll it back a day.
+  return new Date(y || 1970, (m || 1) - 1, d || 1, 12, 0, 0, 0)
+}
+
 function formatDow(dateString) {
-  return new Date(dateString).toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()
+  return shiftDateToLocalNoon(dateString).toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()
 }
 function formatDayNum(dateString) {
-  return new Date(dateString).toLocaleDateString('en-US', { day: 'numeric' })
+  return shiftDateToLocalNoon(dateString).toLocaleDateString('en-US', { day: 'numeric' })
 }
 function formatMon(dateString) {
-  return new Date(dateString).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
+  return shiftDateToLocalNoon(dateString).toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
 }
 function formatTimeRange(startTime, endTime) {
   if (!startTime || !endTime) return '--'
