@@ -1276,7 +1276,9 @@ export default {
     const workerAvailabilities = ref([]);
 
     // Returns true (available/green), false (unavailable/red), or null (unknown/no color).
-    // Availability records represent times the worker CANNOT work (blocked periods).
+    // Records are either the "fully available" sentinel (00:00–23:59) or blocked time windows.
+    // "Available 24/7" is stored as a single 00:00–23:59 record for that day.
+    // No records for a day means the worker marked that day as unavailable.
     const isWorkerAvailableForShift = (userId, shiftDate, startTime, endTime) => {
       if (!shiftDate || !startTime || !endTime) return null;
       const [year, month, day] = shiftDate.split('-').map(Number);
@@ -1285,16 +1287,22 @@ export default {
       const allUserRecords = workerAvailabilities.value.filter(
         (a) => Number(a.user_id) === Number(userId) && a.is_active
       );
-      // No records at all — we have no info about this worker
+      // No records at all — no info about this worker
       if (allUserRecords.length === 0) return null;
       const dayRecords = allUserRecords.filter((a) => Number(a.day_of_week) === dayOfWeek);
-      // No blocked times for this day — worker is available
-      if (dayRecords.length === 0) return true;
-      // Check if the shift overlaps with any blocked period
+      // No records for this day — worker marked it unavailable
+      if (dayRecords.length === 0) return false;
+      // If the day has the "Available 24/7" sentinel (00:00–23:59), always green
+      const isFullDay = dayRecords.some((rec) => {
+        const s = (rec.start_time || '').substring(0, 5);
+        const e = (rec.end_time || '').substring(0, 5);
+        return s === '00:00' && e === '23:59';
+      });
+      if (isFullDay) return true;
+      // Otherwise records are blocked windows — red if shift overlaps any of them
       for (const rec of dayRecords) {
         const blockedStart = (rec.start_time || '').substring(0, 5);
         const blockedEnd = (rec.end_time || '').substring(0, 5);
-        // Overlap: shift starts before block ends AND shift ends after block starts
         if (startTime < blockedEnd && endTime > blockedStart) return false;
       }
       return true;
@@ -1750,7 +1758,7 @@ export default {
           start: combineDateTime(date, start),
           end: combineDateTime(date, end),
           title: `${getWorkerLabel(shift.user_id)}`,
-          content: `${getPositionLabel(shift.position_id)}\nTask List Completion: ${completionText}\nIncomplete: ${incompleteText}`,
+          content: `${getPositionLabel(shift.position_id)}`,
           class: eventClass,
           shift_id: shift.shift_id,
         };
