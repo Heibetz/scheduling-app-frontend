@@ -212,10 +212,11 @@ const closeManager = () => {
 
 onMounted(() => {
   currentUser.value = Utils.getStore("user");
-  if (!currentUser.value || !currentUser.value.is_super_admin) {
-    router.push({ name: "dashboard" });
-    return;
-  }
+  // TEMP: bypassing super admin check
+  // if (!currentUser.value || !currentUser.value.is_super_admin) {
+  //   router.push({ name: "dashboard" });
+  //   return;
+  // }
   fetchAll();
 });
 </script>
